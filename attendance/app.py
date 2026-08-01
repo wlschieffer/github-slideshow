@@ -352,16 +352,64 @@ def admin_export():
 # ---------------------------------------------------------------------------
 def _roster_context(conn):
     """Shared context for the roster page (student list + saved Canvas prefs)."""
+    # Map each student to the short labels of the periods they're enrolled in
+    # (e.g. "01, 02, Enrichment") so multi-period students are visible.
+    enrolled_periods = {}
+    for r in conn.execute(
+        "SELECT e.student_id, p.name FROM enrollments e "
+        "JOIN periods p ON p.id = e.period_id ORDER BY p.sort_order, p.name"
+    ).fetchall():
+        short = r["name"].split(" - ")[0] if " - " in r["name"] else r["name"]
+        enrolled_periods.setdefault(r["student_id"], []).append(short)
     return {
         "students": conn.execute(
             "SELECT * FROM students ORDER BY active DESC, name"
         ).fetchall(),
+        "enrolled_periods": enrolled_periods,
         "canvas_base_url": db.get_setting(conn, "canvas_base_url", ""),
         "canvas_id_field": db.get_setting(conn, "canvas_id_field", "sis_user_id"),
         "canvas_course_ids": db.get_setting(conn, "canvas_course_ids", ""),
         "canvas_section_map": db.get_setting(conn, "canvas_section_map", ""),
         "id_fields": canvas.ID_FIELDS,
     }
+
+
+@app.post("/roster/clear")
+def roster_clear():
+    """Full clear: remove all students, their enrollments, and attendance."""
+    conn = db.get_db()
+    conn.execute("DELETE FROM attendance")
+    conn.execute("DELETE FROM enrollments")
+    conn.execute("DELETE FROM students")
+    conn.commit()
+    conn.close()
+    flash("Cleared all students, enrollments, and attendance records.")
+    return redirect(url_for("roster"))
+
+
+@app.post("/roster/student/toggle")
+def roster_student_toggle():
+    """Activate/deactivate a student (keeps their record and history)."""
+    sid = request.form.get("student_id", "")
+    conn = db.get_db()
+    conn.execute("UPDATE students SET active = 1 - active WHERE student_id = ?", (sid,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("roster"))
+
+
+@app.post("/roster/student/delete")
+def roster_student_delete():
+    """Permanently delete one student and their enrollments + attendance."""
+    sid = request.form.get("student_id", "")
+    conn = db.get_db()
+    conn.execute("DELETE FROM attendance WHERE student_id = ?", (sid,))
+    conn.execute("DELETE FROM enrollments WHERE student_id = ?", (sid,))
+    conn.execute("DELETE FROM students WHERE student_id = ?", (sid,))
+    conn.commit()
+    conn.close()
+    flash(f"Deleted student {sid}.")
+    return redirect(url_for("roster"))
 
 
 @app.route("/roster")

@@ -21,29 +21,45 @@ SCHEMA_PATH = os.path.join(BASE_DIR, "schema.sql")
 # Times are 24h "HH:MM". Lunch is a time marker, not a scannable period, so
 # it is intentionally omitted.
 # ---------------------------------------------------------------------------
-# (name, sort_order)
+# Period display names, formatted "NN - Ordinal Period" (e.g. "01 - First Period").
+ORDINALS = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh"]
+
+
+def period_name(n):
+    return f"{n:02d} - {ORDINALS[n - 1]} Period"
+
+
+ENRICHMENT = "Enrichment"
+_P = {n: period_name(n) for n in range(1, 8)}
+
+# (name, sort_order) — Enrichment sits between 3rd and 4th.
 SEED_PERIODS = [
-    ("1st", 1), ("2nd", 2), ("3rd", 3), ("Enrichment", 4),
-    ("4th", 5), ("5th", 6), ("6th", 7), ("7th", 8),
+    (_P[1], 1), (_P[2], 2), (_P[3], 3), (ENRICHMENT, 4),
+    (_P[4], 5), (_P[5], 6), (_P[6], 7), (_P[7], 8),
 ]
 
 ENRICHMENT_TIMES = {  # Mon, Tue, Fri
-    "1st": ("07:15", "08:02"), "2nd": ("08:09", "08:56"),
-    "3rd": ("09:03", "09:50"), "Enrichment": ("09:50", "10:29"),
-    "4th": ("10:36", "11:23"), "5th": ("12:00", "12:47"),
-    "6th": ("12:54", "13:41"), "7th": ("13:48", "14:35"),
+    _P[1]: ("07:15", "08:02"), _P[2]: ("08:09", "08:56"),
+    _P[3]: ("09:03", "09:50"), ENRICHMENT: ("09:50", "10:29"),
+    _P[4]: ("10:36", "11:23"), _P[5]: ("12:00", "12:47"),
+    _P[6]: ("12:54", "13:41"), _P[7]: ("13:48", "14:35"),
 }
 REGULAR_TIMES = {  # Wed, Thu
-    "1st": ("07:15", "08:08"), "2nd": ("08:15", "09:08"),
-    "3rd": ("09:15", "10:08"), "4th": ("10:15", "11:07"),
-    "5th": ("11:44", "12:35"), "6th": ("12:42", "13:35"),
-    "7th": ("13:42", "14:35"),
+    _P[1]: ("07:15", "08:08"), _P[2]: ("08:15", "09:08"),
+    _P[3]: ("09:15", "10:08"), _P[4]: ("10:15", "11:07"),
+    _P[5]: ("11:44", "12:35"), _P[6]: ("12:42", "13:35"),
+    _P[7]: ("13:42", "14:35"),
 }
 PEP_RALLY_TIMES = {
-    "1st": ("07:15", "08:04"), "2nd": ("08:11", "09:00"),
-    "3rd": ("09:07", "09:56"), "4th": ("10:03", "10:50"),
-    "5th": ("11:27", "12:14"), "6th": ("12:21", "13:08"),
-    "7th": ("13:15", "14:02"),
+    _P[1]: ("07:15", "08:04"), _P[2]: ("08:11", "09:00"),
+    _P[3]: ("09:07", "09:56"), _P[4]: ("10:03", "10:50"),
+    _P[5]: ("11:27", "12:14"), _P[6]: ("12:21", "13:08"),
+    _P[7]: ("13:15", "14:02"),
+}
+# Map old short names -> new format, for migrating existing databases.
+LEGACY_PERIOD_NAMES = {
+    "1st": _P[1], "2nd": _P[2], "3rd": _P[3], "4th": _P[4],
+    "5th": _P[5], "6th": _P[6], "7th": _P[7],
 }
 # (name, sort_order, times)
 SEED_SCHEDULES = [
@@ -88,6 +104,15 @@ def init_db():
                 "VALUES (?, ?, ?, ?)",
                 (name, ft[0], ft[1], order),
             )
+
+    # Migrate any legacy short period names ("1st") to the new format
+    # ("01 - First Period"). References are by period_id, so this is safe.
+    if conn.execute(
+        "SELECT 1 FROM periods WHERE name IN "
+        "('1st','2nd','3rd','4th','5th','6th','7th') LIMIT 1"
+    ).fetchone():
+        for old, new in LEGACY_PERIOD_NAMES.items():
+            conn.execute("UPDATE periods SET name = ? WHERE name = ?", (new, old))
 
     # Seed schedules and their per-period times.
     if conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0:

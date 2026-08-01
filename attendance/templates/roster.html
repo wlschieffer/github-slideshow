@@ -150,22 +150,44 @@
     </form>
     {% endif %}
 
+    <div style="display:flex; align-items:center; gap:1rem; margin-top:1.75rem">
+      <h1 style="font-size:1.15rem; margin:0">Current roster ({{ students|length }})</h1>
+      {% if students %}
+      <form class="inline" method="post" action="{{ url_for('roster_clear') }}"
+            onsubmit="return confirm('Delete ALL students, their enrollments, and ALL attendance records? This cannot be undone.');">
+        <button class="ghost" type="submit">Clear all students</button>
+      </form>
+      {% endif %}
+    </div>
+
     {% if students %}
     <table>
-      <thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Active</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Periods</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% for s in students %}
-        <tr>
+        <tr class="{{ '' if s.active else 'muted' }}">
           <td class="muted">{{ s.student_id }}</td>
           <td>{{ s.name }}</td>
           <td>{{ s.grade or '' }}</td>
-          <td>{{ 'Yes' if s.active else 'No' }}</td>
+          <td class="muted">{{ (enrolled_periods.get(s.student_id) or [])|join(', ') }}</td>
+          <td>{% if s.active %}<span class="pill present">Active</span>{% else %}<span class="pill absent">Inactive</span>{% endif %}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('roster_student_toggle') }}">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <button class="ghost" type="submit">{{ 'Deactivate' if s.active else 'Activate' }}</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('roster_student_delete') }}"
+                  onsubmit="return confirm('Permanently delete {{ s.name }} and all their attendance? This cannot be undone.');">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <button class="ghost" type="submit">Delete</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p class="muted">No students yet — import a CSV above.</p>
+    <p class="muted">No students yet — import above.</p>
     {% endif %}
   </div>
 </body>

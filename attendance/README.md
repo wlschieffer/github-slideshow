@@ -185,8 +185,15 @@ range (so weekends/holidays with no scans don't count against anyone).
 who's-in / who's-out live view, **per-period class rosters (schedules)**,
 **day-of-week bell schedules with auto-switching + on/off/force modes**,
 manual forgot-ID check-in, mistake undo, **daily summary + per-student
-history + absence exports**, roster/schedule CSV import/export, and
-multi-station use over the network.
+history + absence exports**, roster/schedule CSV import/export,
+**Canvas LMS import**, **roster management (clear all / activate-deactivate /
+delete)**, and multi-station use over the network.
+
+Periods are named `NN - Ordinal Period` (e.g. `01 - First Period`), with
+`Enrichment` between 3rd and 4th. A student can belong to several periods —
+that's expected; the Roster page's **Periods** column shows each student's
+periods so multi-period students are visible, and attendance is tracked
+independently per period.
 
 **Not built yet** (easy to add): ID expiration / active-status rules,
 in-vs-out direction, student photos on scan, and dashboards/charts.
