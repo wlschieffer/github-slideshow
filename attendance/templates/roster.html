@@ -58,14 +58,15 @@
 
     <form class="controls" method="post" action="{{ url_for('roster_import') }}"
           enctype="multipart/form-data">
-      <label>Import CSV (columns: <code>student_id, name, grade</code>)
+      <label>Import CSV
         <input type="file" name="file" accept=".csv" required>
       </label>
       <button type="submit">Import</button>
       <a class="btn" href="{{ url_for('roster_export') }}">Export CSV</a>
     </form>
-    <p class="muted">Importing updates existing students by ID and adds new ones.
-       Export your current Excel roster to CSV with these column headers to load it in.</p>
+    <p class="muted">Columns: <code>student_id, name, grade</code> (grade optional).
+       Importing updates existing students by ID and adds new ones — export your
+       current Excel roster to CSV with these headers to load it in.</p>
 
     <!-- Canvas LMS import (cross-listed: each SECTION maps to a period) -->
     <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>
