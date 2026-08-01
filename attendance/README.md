@@ -83,7 +83,12 @@ schedule as three named day-schedules, each with its own period times:
 
 The kiosk figures out the current period automatically from the computer's
 clock **and the day of week** — it uses the Enrichment times on Mon/Tue/Fri
-and the Regular times on Wed/Thu. All of this is managed on the
+and the Regular times on Wed/Thu.
+
+Scans in the **passing period before a class** count for the **upcoming**
+class: a scan from `scan_lead_minutes` (default 7) before a period starts
+through its end is attributed to that period — including before 1st period.
+Set the lead to your passing-period length under **Settings → Scanner**. All of this is managed on the
 **Settings** page (`/settings`):
 
 - **Today's schedule / mode:**

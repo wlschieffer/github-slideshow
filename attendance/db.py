@@ -7,7 +7,7 @@ so backups are a one-file copy and there is no database server to run.
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from werkzeug.security import generate_password_hash
 
@@ -137,6 +137,7 @@ def init_db():
     # Seed settings (mode + weekday map + scanner cooldown) if not present.
     _seed_setting(conn, "schedule_mode", "auto")
     _seed_setting(conn, "scan_cooldown_ms", "1500")
+    _seed_setting(conn, "scan_lead_minutes", "7")
     for wd, sname in WEEKDAY_DEFAULT.items():
         _seed_setting(conn, f"wd_{wd}", sname)
 
@@ -226,21 +227,41 @@ def active_schedule(conn, now=None):
     return schedule_by_name(conn, mode)
 
 
+def _shift_hhmm(hhmm, minutes):
+    """Return "HH:MM" shifted by `minutes` (can be negative)."""
+    return (datetime.strptime(hhmm, "%H:%M") + timedelta(minutes=minutes)).strftime("%H:%M")
+
+
 def current_period(conn, now=None):
-    """The period whose time window (in the active schedule) contains now,
-    or None if the bell schedule is off / we're between periods."""
+    """The period a scan right now should count for. A scan counts for a
+    period from `scan_lead_minutes` before it starts (the passing period)
+    through its end — so students scanning in the hallway before class are
+    marked for the upcoming class, not the previous one. Returns None when the
+    bell schedule is off or it's outside school hours (e.g. lunch)."""
     sched = active_schedule(conn, now)
     if not sched:
         return None
     now = now or datetime.now()
     hhmm = now.strftime("%H:%M")
-    return conn.execute(
-        "SELECT p.* FROM schedule_periods sp "
-        "JOIN periods p ON p.id = sp.period_id "
-        "WHERE sp.schedule_id = ? AND sp.start_time <= ? AND ? <= sp.end_time "
-        "ORDER BY sp.start_time LIMIT 1",
-        (sched["id"], hhmm, hhmm),
-    ).fetchone()
+    try:
+        lead = int(get_setting(conn, "scan_lead_minutes", "7") or 0)
+    except ValueError:
+        lead = 7
+
+    rows = conn.execute(
+        "SELECT p.*, sp.start_time AS s_start, sp.end_time AS s_end "
+        "FROM schedule_periods sp JOIN periods p ON p.id = sp.period_id "
+        "WHERE sp.schedule_id = ? ORDER BY sp.start_time",
+        (sched["id"],),
+    ).fetchall()
+
+    for r in rows:
+        if _shift_hhmm(r["s_start"], -lead) <= hhmm <= r["s_end"]:
+            return r
+    # Early arrivals before the first period's lead window count for it.
+    if rows and hhmm < _shift_hhmm(rows[0]["s_start"], -lead):
+        return rows[0]
+    return None
 
 
 def enrollments_exist(conn):

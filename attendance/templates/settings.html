@@ -61,13 +61,23 @@
         <input type="number" name="scan_cooldown_ms" value="{{ scan_cooldown_ms }}"
                min="0" max="10000" step="100">
       </label>
+      <label>Passing-period lead (minutes)
+        <input type="number" name="scan_lead_minutes" value="{{ scan_lead_minutes }}"
+               min="0" max="30" step="1">
+      </label>
       <button type="submit">Save</button>
     </form>
     <p class="muted">
-      Ignores a repeat read of the <em>same</em> ID within this many milliseconds,
-      so a badge that scans twice in one swipe only counts once. Different students
-      still scan instantly. Default 1500 (1.5&nbsp;s); lower it if check-ins feel
-      sluggish, raise it if double-reads still slip through. Set 0 to disable.
+      <strong>Cooldown</strong> ignores a repeat read of the <em>same</em> ID within
+      that many milliseconds, so a badge that scans twice in one swipe counts once
+      (default 1500; 0 disables).
+    </p>
+    <p class="muted">
+      <strong>Passing-period lead</strong> is how many minutes <em>before</em> a
+      period a scan counts for that period — set it to your passing-period length
+      (default 7). So students scanning in the hallway before class (including
+      before 1st period) are marked for the <em>upcoming</em> class, not the one
+      that just ended.
     </p>
 
     <!-- Staff PIN -->

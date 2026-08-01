@@ -859,6 +859,7 @@ def settings():
     active = db.active_schedule(conn)
     current = db.current_period(conn)
     cooldown = db.get_setting(conn, "scan_cooldown_ms", "1500")
+    lead = db.get_setting(conn, "scan_lead_minutes", "7")
     conn.close()
     return render_template(
         "settings.html",
@@ -870,6 +871,7 @@ def settings():
         active_name=active["name"] if active else None,
         current_name=current["name"] if current else None,
         scan_cooldown_ms=cooldown,
+        scan_lead_minutes=lead,
     )
 
 
@@ -909,16 +911,21 @@ def settings_pin():
 
 @app.post("/settings/scan")
 def settings_scan():
-    """Save the double-scan cooldown (milliseconds)."""
+    """Save the scanner settings: double-scan cooldown + passing-period lead."""
     try:
         ms = max(0, min(10000, int(float(request.form.get("scan_cooldown_ms", "1500")))))
     except (TypeError, ValueError):
         ms = 1500
+    try:
+        lead = max(0, min(30, int(float(request.form.get("scan_lead_minutes", "7")))))
+    except (TypeError, ValueError):
+        lead = 7
     conn = db.get_db()
     db.set_setting(conn, "scan_cooldown_ms", str(ms))
+    db.set_setting(conn, "scan_lead_minutes", str(lead))
     conn.commit()
     conn.close()
-    flash(f"Scan cooldown set to {ms} ms.")
+    flash(f"Scanner settings saved (cooldown {ms} ms, lead {lead} min).")
     return redirect(url_for("settings"))
 
 
