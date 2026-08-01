@@ -69,8 +69,13 @@ def fetch_sections(base_url, token, course_id, timeout=20):
 
 def fetch_section_students(base_url, token, section_id, timeout=20):
     """Return student user objects for a section, including pending/invited
-    enrollments (so unpublished or not-yet-started courses still work)."""
+    enrollments (so unpublished or not-yet-started courses still work).
+
+    Tries the section enrollments endpoint first; if that comes back empty,
+    falls back to the section's ?include[]=students list."""
     base = base_url.rstrip("/")
+
+    # Strategy A: enrollments for the section, across active + pending states.
     url = f"{base}/api/v1/sections/{section_id}/enrollments"
     params = {
         "type[]": "StudentEnrollment",
@@ -78,16 +83,30 @@ def fetch_section_students(base_url, token, section_id, timeout=20):
         "include[]": "user",
         "per_page": 100,
     }
-    enrollments = _paginate(url, token, params, timeout)
     students = []
-    for e in enrollments:
+    for e in _paginate(url, token, params, timeout):
         user = dict(e.get("user") or {})
         # Some deployments expose SIS/login on the enrollment, not the user.
         for key in ("sis_user_id", "login_id", "integration_id"):
             if not user.get(key) and e.get(key):
                 user[key] = e[key]
-        students.append(user)
-    return students
+        if user:
+            students.append(user)
+    if students:
+        return students
+
+    # Strategy B: the section object with its students included.
+    url = f"{base}/api/v1/sections/{section_id}"
+    try:
+        r = requests.get(
+            url, headers=_headers(token),
+            params={"include[]": "students"}, timeout=timeout,
+        )
+        _raise_for_status(r)
+        obj = r.json()
+    except requests.RequestException as e:
+        raise CanvasError(f"Could not reach Canvas: {e}")
+    return list(obj.get("students") or [])
 
 
 def extract_id(student, id_field):

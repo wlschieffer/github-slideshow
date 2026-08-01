@@ -64,14 +64,20 @@
       {% if sections is defined and sections %}
       <div class="flash" style="background:#1e3a8a; border-color:#3b82f6">
         Found {{ sections|length }} section(s). Copy the IDs into the map below and
-        set each period.
+        set each period. <strong>Canvas #</strong> is Canvas's own student count;
+        <strong>Retrieved</strong> is how many this app can actually read. If
+        Retrieved is 0 while Canvas # shows students, the token can see the section
+        but not its enrollments (a permissions issue) — tell me and we'll switch
+        to the gradebook-CSV route.
       </div>
       <table>
-        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Students</th></tr></thead>
+        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Canvas #</th><th>Retrieved</th></tr></thead>
         <tbody>
           {% for s in sections %}
           <tr><td class="muted">{{ s.course }}</td><td><strong>{{ s.id }}</strong></td>
-              <td>{{ s.name }}</td><td class="muted">{{ s.count if s.count is not none else '—' }}</td></tr>
+              <td>{{ s.name }}</td>
+              <td class="muted">{{ s.count if s.count is not none else '—' }}</td>
+              <td>{% if s.retrieved is none %}<span class="pill absent">error</span>{% elif s.retrieved == 0 %}<span class="pill absent">0</span>{% else %}<strong>{{ s.retrieved }}</strong>{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

@@ -423,11 +423,19 @@ def roster_canvas():
             sections = []
             for cid in ids:
                 for s in canvas.fetch_sections(base_url, token, cid):
+                    sid = s.get("id")
+                    # Diagnostic: how many students we can actually retrieve,
+                    # alongside Canvas's own reported count.
+                    try:
+                        retrieved = len(canvas.fetch_section_students(base_url, token, sid))
+                    except canvas.CanvasError:
+                        retrieved = None
                     sections.append({
                         "course": cid,
-                        "id": s.get("id"),
+                        "id": sid,
                         "name": s.get("name"),
                         "count": s.get("total_students"),
+                        "retrieved": retrieved,
                     })
             suggested = "\n".join(f"{s['id']}, " for s in sections)
             conn = db.get_db()
