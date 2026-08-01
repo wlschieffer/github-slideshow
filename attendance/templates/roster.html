@@ -25,6 +25,32 @@
       {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
     {% endwith %}
 
+    {% if import_result %}
+    <div class="flash" style="background:#064e3b; border-color:#16a34a">
+      <strong>Canvas import complete.</strong>
+      {{ import_result.n_students }} students, {{ import_result.n_enroll }} enrollments imported.
+      {% if import_result.skipped %}<br><strong>{{ import_result.skipped|length }} skipped</strong>
+        — no {{ import_result.id_label }}. See below: if these students have a value in a
+        <em>different</em> ID column, re-import with that "ID to use for scanning".{% endif %}
+    </div>
+    {% if import_result.skipped %}
+    <table>
+      <thead><tr><th>Section</th><th>Name</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th></tr></thead>
+      <tbody>
+        {% for r in import_result.skipped %}
+        <tr>
+          <td class="muted">{{ r.section }}</td>
+          <td>{{ r.name }}</td>
+          <td>{% if r.sis %}{{ r.sis }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+          <td>{% if r.login %}{{ r.login }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+          <td class="muted">{{ r.canvas_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% endif %}
+
     <form class="controls" method="post" action="{{ url_for('roster_import') }}"
           enctype="multipart/form-data">
       <label>Import CSV (columns: <code>student_id, name, grade</code>)

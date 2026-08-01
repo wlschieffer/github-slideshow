@@ -556,12 +556,16 @@ def roster_canvas():
 
     if action == "import":
         n_students, n_enroll, skipped = _canvas_import(fetched, id_field)
-        msg = f"Canvas import complete: {n_students} students, {n_enroll} enrollments."
-        if skipped:
-            label = canvas.ID_FIELDS.get(id_field, id_field)
-            msg += f" Skipped {skipped} with no {label}."
-        flash(msg)
-        return redirect(url_for("roster"))
+        result = {
+            "n_students": n_students,
+            "n_enroll": n_enroll,
+            "skipped": skipped,
+            "id_label": canvas.ID_FIELDS.get(id_field, id_field),
+        }
+        conn = db.get_db()
+        ctx = _roster_context(conn)
+        conn.close()
+        return render_template("roster.html", import_result=result, **ctx)
 
     preview = _canvas_preview(fetched, id_field)
     section_ids = ",".join(sid for sid, _ in smap)
@@ -599,7 +603,7 @@ def _canvas_preview(fetched, id_field):
 
 def _canvas_import(fetched, id_field):
     conn = db.get_db()
-    seen_students, n_enroll, skipped = set(), 0, 0
+    seen_students, n_enroll, skipped = set(), 0, []
     for sid, period, students in fetched:
         pid = db.resolve_period(conn, period)
         if pid is None:
@@ -614,7 +618,13 @@ def _canvas_import(fetched, id_field):
         for s in students:
             student_id = canvas.extract_id(s, id_field)
             if not student_id:
-                skipped += 1
+                skipped.append({
+                    "section": sid,
+                    "name": canvas.student_name(s),
+                    "sis": s.get("sis_user_id"),
+                    "login": s.get("login_id"),
+                    "canvas_id": s.get("id"),
+                })
                 continue
             conn.execute(
                 "INSERT INTO students (student_id, name, grade, active) "

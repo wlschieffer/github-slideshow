@@ -6,6 +6,8 @@ scannable badges depends on your district's setup, so the caller picks the
 field and the UI previews all of them before importing.
 """
 
+import time
+
 import requests
 
 # id_field value -> human label, in the order shown in the UI.
@@ -109,17 +111,28 @@ def fetch_section_students(base_url, token, section_id, timeout=20):
     return list(obj.get("students") or [])
 
 
-def fetch_user_profile(base_url, token, user_id, timeout=20):
+def fetch_user_profile(base_url, token, user_id, timeout=20, retries=3):
     """Fetch a single user's profile (has login_id, and sis_user_id if the
-    token is permitted). Returns {} on any error so enrichment is best-effort."""
+    token is permitted). Returns {} on any error so enrichment is best-effort.
+    Retries on rate-limit / transient errors so a busy Canvas doesn't cause
+    students to be silently dropped."""
     base = base_url.rstrip("/")
     url = f"{base}/api/v1/users/{user_id}/profile"
-    try:
-        r = requests.get(url, headers=_headers(token), timeout=timeout)
-        if r.status_code == 200:
-            return r.json() or {}
-    except requests.RequestException:
-        pass
+    for attempt in range(retries + 1):
+        try:
+            r = requests.get(url, headers=_headers(token), timeout=timeout)
+            if r.status_code == 200:
+                return r.json() or {}
+            # 403 can be a rate limit ("Rate Limit Exceeded"); 429 too. Retry.
+            if r.status_code in (403, 429) and attempt < retries:
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            return {}
+        except requests.RequestException:
+            if attempt < retries:
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            return {}
     return {}
 
 
