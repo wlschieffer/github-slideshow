@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roster</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Roster</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Roster ({{ students|length }} students)</h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+
+    <form class="controls" method="post" action="{{ url_for('roster_import') }}"
+          enctype="multipart/form-data">
+      <label>Import CSV (columns: <code>student_id, name, grade</code>)
+        <input type="file" name="file" accept=".csv" required>
+      </label>
+      <button type="submit">Import</button>
+      <a class="btn" href="{{ url_for('roster_export') }}">Export CSV</a>
+    </form>
+    <p class="muted">Importing updates existing students by ID and adds new ones.
+       Export your current Excel roster to CSV with these column headers to load it in.</p>
+
+    {% if students %}
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Active</th></tr></thead>
+      <tbody>
+        {% for s in students %}
+        <tr>
+          <td class="muted">{{ s.student_id }}</td>
+          <td>{{ s.name }}</td>
+          <td>{{ s.grade or '' }}</td>
+          <td>{{ 'Yes' if s.active else 'No' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No students yet — import a CSV above.</p>
+    {% endif %}
+  </div>
+</body>
+</html>
