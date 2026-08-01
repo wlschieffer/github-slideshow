@@ -6,11 +6,16 @@ workbook. One Python process serves two interfaces on your network:
 - **Kiosk** (`/`) — students scan their ID badge to check in. Instant
   green / yellow / red feedback. A barcode/QR scanner just "types" the ID
   and presses Enter, so no drivers or special setup are needed.
-- **Staff** (`/admin`) — see who *has* and *hasn't* checked in for each
+- **Live** (`/admin`) — see who *has* and *hasn't* checked in for each
   period, manually check in a student who forgot their ID, fix mistakes,
   and export the report to CSV/Excel.
+- **Reports** (`/reports`) — a daily per-period present/absent/rate
+  summary, per-student history with attendance rates, and an absence
+  export over any date range.
 - **Roster** (`/roster`) — import your list of valid IDs from a CSV
   (exported straight from your current Excel file).
+- **Schedule** (`/schedule`) — import each student's class schedule so a
+  period expects only its enrolled students (per-period class rosters).
 
 Data lives in **one SQLite file** (`data/attendance.db`) — back it up by
 copying that file. No database server to install or maintain.
@@ -58,16 +63,55 @@ picks the current period automatically from the computer's clock, and
 staff can view any period/date. To change the schedule, edit
 `DEFAULT_PERIODS` in `db.py` before first run, or edit the `periods` table.
 
-## What this first run does / doesn't do yet
+## Per-period class rosters (schedules)
 
-**Included:** valid-ID check, attendance logging (who + when),
-per-period who's-in / who's-out reports, manual forgot-ID check-in,
-mistake undo, CSV import/export, multi-station over the network.
+By default the app runs in **whole-school mode**: every active student is
+"expected" every period. Import class schedules to switch to **per-period
+rosters**, so each period only expects (and counts absences for) its own
+enrolled students.
 
-**Deliberately deferred** (easy to add once you've tried it): per-student
-class schedules (so each period expects only its own roster), ID
-expiration rules, in/out direction, student photos on scan, dashboards,
-and staff logins. These are the things worth deciding *after* a first run.
+Export a CSV with these columns and import it on the **Schedule** page
+(or with the command below). `section` and `room` are optional; `period`
+may be a number (`3`) or a name (`Period 3`):
+
+```
+student_id,period,section,room
+```
+
+```bash
+.venv/bin/python app.py import-schedule sample_schedule.csv
+```
+
+Students who scan into a period they aren't enrolled in still check in
+fine — they appear in an "Also checked in — not on this period's roster"
+section on the Live page. Use **Clear all schedules** on the Schedule page
+to revert to whole-school mode.
+
+## Reports
+
+- **Daily summary** (`/reports`) — present / absent / rate for every
+  period on a chosen date, with a per-day absence CSV export.
+- **Student history** (`/student/<id>`, or click a name on the Live page)
+  — that student's check-in log and per-period attendance rate over a date
+  range.
+- **Absence export** (`/reports/absences.csv?start=…&end=…`) — every
+  expected-but-absent slot across a date range, as CSV.
+
+Attendance *rates* are computed over "school days that actually ran",
+approximated as the distinct days with any recorded attendance in the
+range (so weekends/holidays with no scans don't count against anyone).
+
+## What's included / what's next
+
+**Included:** valid-ID check, attendance logging (who + when), per-period
+who's-in / who's-out live view, **per-period class rosters (schedules)**,
+manual forgot-ID check-in, mistake undo, **daily summary + per-student
+history + absence exports**, roster/schedule CSV import/export, and
+multi-station use over the network.
+
+**Not built yet** (easy to add): ID expiration / active-status rules,
+in-vs-out direction, student photos on scan, dashboards/charts, and staff
+logins to protect the admin pages.
 
 ## Notes for real deployment
 

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reports</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Reports</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Schedule</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Daily summary
+      <span class="muted" style="font-size:.9rem; font-weight:400">
+        · {{ 'per-period rosters' if per_period else 'whole-school mode' }}
+      </span>
+    </h1>
+
+    <form class="controls" method="get" action="{{ url_for('reports') }}">
+      <label>Date
+        <input type="date" name="day" value="{{ day }}">
+      </label>
+      <button type="submit">View</button>
+      <a class="btn" href="{{ url_for('absences_export', start=day, end=day) }}">Absences CSV (this day)</a>
+    </form>
+
+    <table>
+      <thead>
+        <tr><th>Period</th><th>Present</th><th>Absent</th><th>Expected</th><th>Rate</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for s in summary %}
+        <tr>
+          <td>{{ s.period.name }} <span class="muted">({{ s.period.start_time }}–{{ s.period.end_time }})</span></td>
+          <td>{{ s.present }}</td>
+          <td>{{ s.absent }}</td>
+          <td class="muted">{{ s.expected }}</td>
+          <td>{{ (s.rate ~ '%') if s.rate is not none else '—' }}</td>
+          <td><a href="{{ url_for('admin', day=day, period_id=s.period.id) }}">View list &rsaquo;</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p class="muted" style="margin-top:1rem">
+      Click a student's name on the <a href="{{ url_for('admin') }}">Live</a> page
+      to see their individual history and attendance rate.
+    </p>
+  </div>
+</body>
+</html>

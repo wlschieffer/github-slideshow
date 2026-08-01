@@ -5,6 +5,7 @@ so backups are a one-file copy and there is no database server to run.
 """
 
 import os
+import re
 import sqlite3
 from datetime import datetime
 
@@ -61,4 +62,35 @@ def current_period(conn, now=None):
     for p in list_periods(conn):
         if p["start_time"] <= hhmm <= p["end_time"]:
             return p
+    return None
+
+
+def enrollments_exist(conn):
+    """True once any class schedule has been imported. Switches the app from
+    whole-school mode to per-period class rosters."""
+    return conn.execute("SELECT 1 FROM enrollments LIMIT 1").fetchone() is not None
+
+
+def resolve_period(conn, token):
+    """Map a CSV period value ("3", "Period 3", "period 3") to a period id."""
+    token = (token or "").strip()
+    if not token:
+        return None
+    row = conn.execute(
+        "SELECT id FROM periods WHERE lower(name) = lower(?)", (token,)
+    ).fetchone()
+    if row:
+        return row["id"]
+    m = re.search(r"\d+", token)
+    if m:
+        n = int(m.group())
+        row = conn.execute(
+            "SELECT id FROM periods WHERE sort_order = ?", (n,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        for p in list_periods(conn):
+            pm = re.search(r"\d+", p["name"])
+            if pm and int(pm.group()) == n:
+                return p["id"]
     return None

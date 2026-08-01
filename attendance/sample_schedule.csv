@@ -1,0 +1,16 @@
+student_id,period,section,room
+1001,1,English 9,104
+1002,1,English 9,104
+1003,1,English 10,106
+1004,1,English 10,106
+1005,1,English 11,108
+1001,2,Algebra I,201
+1002,2,Geometry,203
+1003,2,Geometry,203
+1006,2,Algebra II,205
+1007,2,Pre-Calc,207
+1001,3,Biology,301
+1004,3,Biology,301
+1008,3,Chemistry,303
+1009,3,Chemistry,303
+1010,3,Physics,305

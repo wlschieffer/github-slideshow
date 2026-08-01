@@ -10,12 +10,18 @@
   <div class="topnav">
     <span class="brand">Attendance · Staff</span>
     <a href="{{ url_for('kiosk') }}">Kiosk</a>
-    <a href="{{ url_for('admin') }}">Reports</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
     <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Schedule</a>
   </div>
 
   <div class="wrap">
-    <h1>Who's checked in</h1>
+    <h1>Who's checked in
+      <span class="muted" style="font-size:.9rem; font-weight:400">
+        · {{ 'per-period rosters' if per_period else 'whole-school mode' }}
+      </span>
+    </h1>
 
     <form class="controls" method="get" action="{{ url_for('admin') }}">
       <label>Date
@@ -49,7 +55,10 @@
       <tbody>
         {% for r in rows %}
         <tr class="{{ 'present' if r.scanned_at }}">
-          <td>{{ r.name }}</td>
+          <td>
+            <a href="{{ url_for('student_history', student_id=r.student_id) }}">{{ r.name }}</a>
+            {% if r.section %}<div class="muted" style="font-size:.8rem">{{ r.section }}{% if r.room %} · Rm {{ r.room }}{% endif %}</div>{% endif %}
+          </td>
           <td class="muted">{{ r.student_id }}</td>
           <td>{{ r.grade or '' }}</td>
           <td>
@@ -88,6 +97,33 @@
       Forgot-ID check-in: find the student above and click <em>Mark present</em>
       (logged as <span class="pill manual">manual</span>).
     </p>
+    {% endif %}
+
+    {% if extras %}
+    <h1 style="margin-top:2rem; font-size:1.15rem">
+      Also checked in — not on this period's roster
+    </h1>
+    <table>
+      <thead><tr><th>Student</th><th>ID</th><th>Grade</th><th>Time</th><th></th></tr></thead>
+      <tbody>
+        {% for r in extras %}
+        <tr>
+          <td><a href="{{ url_for('student_history', student_id=r.student_id) }}">{{ r.name }}</a></td>
+          <td class="muted">{{ r.student_id }}</td>
+          <td>{{ r.grade or '' }}</td>
+          <td class="muted">{{ r.scanned_at.split('T')[1][:5] if r.scanned_at else '' }}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('admin_unmark') }}">
+              <input type="hidden" name="student_id" value="{{ r.student_id }}">
+              <input type="hidden" name="period_id" value="{{ selected_period }}">
+              <input type="hidden" name="day" value="{{ day }}">
+              <button class="ghost" type="submit">Undo</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
     {% endif %}
   </div>
 </body>

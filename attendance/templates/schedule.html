@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Schedule</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Schedule</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Schedule</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Class schedules
+      <span class="muted" style="font-size:.9rem; font-weight:400">
+        · {{ total }} enrollments
+      </span>
+    </h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+
+    <p class="muted">
+      {% if total %}
+        Per-period rosters are <strong>on</strong>: each period expects only its
+        enrolled students, so absences are counted per class.
+      {% else %}
+        No schedules imported yet — the app is in <strong>whole-school mode</strong>
+        (every active student is expected every period). Import a schedule below to
+        switch to per-period class rosters.
+      {% endif %}
+    </p>
+
+    <form class="controls" method="post" action="{{ url_for('schedule_import') }}"
+          enctype="multipart/form-data">
+      <label>Import CSV (columns: <code>student_id, period, section, room</code>)
+        <input type="file" name="file" accept=".csv" required>
+      </label>
+      <button type="submit">Import</button>
+    </form>
+    <p class="muted"><code>period</code> may be a number (<code>3</code>) or a name
+       (<code>Period 3</code>). <code>section</code> and <code>room</code> are optional.
+       Students must already exist on the <a href="{{ url_for('roster') }}">roster</a>.</p>
+
+    <table>
+      <thead><tr><th>Period</th><th>Time</th><th>Enrolled students</th></tr></thead>
+      <tbody>
+        {% for p in periods %}
+        <tr>
+          <td>{{ p.name }}</td>
+          <td class="muted">{{ p.start_time }}–{{ p.end_time }}</td>
+          <td>{{ counts[p.id] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if total %}
+    <form method="post" action="{{ url_for('schedule_clear') }}" style="margin-top:1rem"
+          onsubmit="return confirm('Remove ALL schedules and return to whole-school mode?');">
+      <button class="ghost" type="submit">Clear all schedules</button>
+    </form>
+    {% endif %}
+  </div>
+</body>
+</html>

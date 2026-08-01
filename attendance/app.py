@@ -12,7 +12,7 @@ Run:  python app.py            (serves on 0.0.0.0:8000 via waitress)
 import csv
 import io
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import (
     Flask,
@@ -128,22 +128,58 @@ def admin():
     period_id = request.args.get("period_id", type=int) or (cur["id"] if cur else (periods[0]["id"] if periods else None))
 
     rows = []
+    extras = []
     present_count = 0
+    per_period = db.enrollments_exist(conn)
     if period_id is not None:
-        rows = conn.execute(
-            """
-            SELECT s.student_id, s.name, s.grade,
-                   a.scanned_at, a.method
-            FROM students s
-            LEFT JOIN attendance a
-              ON a.student_id = s.student_id
-             AND a.period_id = ?
-             AND a.day = ?
-            WHERE s.active = 1
-            ORDER BY (a.scanned_at IS NOT NULL), s.name
-            """,
-            (period_id, day),
-        ).fetchall()
+        if per_period:
+            # Expected roster = students enrolled in this period.
+            rows = conn.execute(
+                """
+                SELECT s.student_id, s.name, s.grade, e.section, e.room,
+                       a.scanned_at, a.method
+                FROM enrollments e
+                JOIN students s ON s.student_id = e.student_id AND s.active = 1
+                LEFT JOIN attendance a
+                  ON a.student_id = s.student_id
+                 AND a.period_id = e.period_id
+                 AND a.day = ?
+                WHERE e.period_id = ?
+                ORDER BY (a.scanned_at IS NOT NULL), s.name
+                """,
+                (day, period_id),
+            ).fetchall()
+            # Students who scanned into this period but aren't enrolled in it.
+            extras = conn.execute(
+                """
+                SELECT s.student_id, s.name, s.grade, a.scanned_at, a.method
+                FROM attendance a
+                JOIN students s ON s.student_id = a.student_id
+                WHERE a.period_id = ? AND a.day = ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM enrollments e
+                      WHERE e.student_id = a.student_id
+                        AND e.period_id = a.period_id)
+                ORDER BY a.scanned_at
+                """,
+                (period_id, day),
+            ).fetchall()
+        else:
+            # Whole-school mode: every active student is expected.
+            rows = conn.execute(
+                """
+                SELECT s.student_id, s.name, s.grade, NULL AS section, NULL AS room,
+                       a.scanned_at, a.method
+                FROM students s
+                LEFT JOIN attendance a
+                  ON a.student_id = s.student_id
+                 AND a.period_id = ?
+                 AND a.day = ?
+                WHERE s.active = 1
+                ORDER BY (a.scanned_at IS NOT NULL), s.name
+                """,
+                (period_id, day),
+            ).fetchall()
         present_count = sum(1 for r in rows if r["scanned_at"])
     conn.close()
 
@@ -153,6 +189,8 @@ def admin():
         selected_period=period_id,
         day=day,
         rows=rows,
+        extras=extras,
+        per_period=per_period,
         present_count=present_count,
         absent_count=len(rows) - present_count,
         total=len(rows),
@@ -307,6 +345,254 @@ def import_roster_rows(reader):
 
 
 # ---------------------------------------------------------------------------
+# Schedule (per-period class rosters)
+# ---------------------------------------------------------------------------
+@app.route("/schedule")
+def schedule():
+    conn = db.get_db()
+    periods = db.list_periods(conn)
+    counts = {
+        p["id"]: conn.execute(
+            "SELECT COUNT(*) FROM enrollments e "
+            "JOIN students s ON s.student_id = e.student_id AND s.active = 1 "
+            "WHERE e.period_id = ?",
+            (p["id"],),
+        ).fetchone()[0]
+        for p in periods
+    }
+    total = conn.execute("SELECT COUNT(*) FROM enrollments").fetchone()[0]
+    conn.close()
+    return render_template(
+        "schedule.html", periods=periods, counts=counts, total=total
+    )
+
+
+@app.post("/schedule/import")
+def schedule_import():
+    """Import class schedules. CSV columns: student_id, period, [section], [room]."""
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("No file selected.")
+        return redirect(url_for("schedule"))
+    text = file.read().decode("utf-8-sig")
+    added, skipped = import_enrollment_rows(csv.DictReader(io.StringIO(text)))
+    msg = f"Imported / updated {added} enrollments."
+    if skipped:
+        msg += f" Skipped {skipped} rows (unknown student ID or period)."
+    flash(msg)
+    return redirect(url_for("schedule"))
+
+
+@app.post("/schedule/clear")
+def schedule_clear():
+    """Remove all enrollments (reverts to whole-school mode)."""
+    conn = db.get_db()
+    conn.execute("DELETE FROM enrollments")
+    conn.commit()
+    conn.close()
+    flash("Cleared all schedules. Back to whole-school mode.")
+    return redirect(url_for("schedule"))
+
+
+def import_enrollment_rows(reader):
+    """Upsert enrollments. Returns (imported, skipped)."""
+    conn = db.get_db()
+    added = skipped = 0
+    for raw in reader:
+        row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
+        sid = row.get("student_id") or row.get("id")
+        ptoken = row.get("period") or row.get("period_id")
+        if not sid or not ptoken:
+            continue
+        pid = db.resolve_period(conn, ptoken)
+        known = conn.execute(
+            "SELECT 1 FROM students WHERE student_id = ?", (sid,)
+        ).fetchone()
+        if pid is None or not known:
+            skipped += 1
+            continue
+        conn.execute(
+            """
+            INSERT INTO enrollments (student_id, period_id, section, room)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(student_id, period_id) DO UPDATE SET
+                section = excluded.section,
+                room = excluded.room
+            """,
+            (sid, pid, row.get("section") or None, row.get("room") or None),
+        )
+        added += 1
+    conn.commit()
+    conn.close()
+    return added, skipped
+
+
+# ---------------------------------------------------------------------------
+# Reports & history
+# ---------------------------------------------------------------------------
+@app.route("/reports")
+def reports():
+    """Per-period present/absent summary for a chosen day."""
+    day = request.args.get("day") or date.today().isoformat()
+    conn = db.get_db()
+    periods = db.list_periods(conn)
+    per_period = db.enrollments_exist(conn)
+    summary = []
+    for p in periods:
+        if per_period:
+            expected = conn.execute(
+                "SELECT COUNT(*) FROM enrollments e "
+                "JOIN students s ON s.student_id = e.student_id AND s.active = 1 "
+                "WHERE e.period_id = ?",
+                (p["id"],),
+            ).fetchone()[0]
+            present = conn.execute(
+                "SELECT COUNT(DISTINCT a.student_id) FROM attendance a "
+                "WHERE a.period_id = ? AND a.day = ? AND EXISTS ("
+                "  SELECT 1 FROM enrollments e "
+                "  WHERE e.student_id = a.student_id AND e.period_id = a.period_id)",
+                (p["id"], day),
+            ).fetchone()[0]
+        else:
+            expected = conn.execute(
+                "SELECT COUNT(*) FROM students WHERE active = 1"
+            ).fetchone()[0]
+            present = conn.execute(
+                "SELECT COUNT(DISTINCT student_id) FROM attendance "
+                "WHERE period_id = ? AND day = ?",
+                (p["id"], day),
+            ).fetchone()[0]
+        rate = round(100 * present / expected) if expected else None
+        summary.append(
+            {
+                "period": p,
+                "expected": expected,
+                "present": present,
+                "absent": max(expected - present, 0),
+                "rate": rate,
+            }
+        )
+    conn.close()
+    return render_template(
+        "reports.html", day=day, summary=summary, per_period=per_period
+    )
+
+
+@app.route("/student/<student_id>")
+def student_history(student_id):
+    """A single student's check-in history + attendance rate over a range."""
+    conn = db.get_db()
+    student = conn.execute(
+        "SELECT * FROM students WHERE student_id = ?", (student_id,)
+    ).fetchone()
+    if student is None:
+        conn.close()
+        return "Student not found", 404
+
+    end = request.args.get("end") or date.today().isoformat()
+    start = request.args.get("start") or (
+        date.fromisoformat(end) - timedelta(days=13)
+    ).isoformat()
+
+    enrolled = conn.execute(
+        "SELECT p.* FROM enrollments e JOIN periods p ON p.id = e.period_id "
+        "WHERE e.student_id = ? ORDER BY p.sort_order",
+        (student_id,),
+    ).fetchall()
+    # Proxy for "school days ran" = distinct days with any recorded attendance.
+    school_days = conn.execute(
+        "SELECT COUNT(DISTINCT day) FROM attendance WHERE day BETWEEN ? AND ?",
+        (start, end),
+    ).fetchone()[0]
+
+    per_period = []
+    for p in enrolled:
+        present = conn.execute(
+            "SELECT COUNT(DISTINCT day) FROM attendance "
+            "WHERE student_id = ? AND period_id = ? AND day BETWEEN ? AND ?",
+            (student_id, p["id"], start, end),
+        ).fetchone()[0]
+        per_period.append(
+            {
+                "period": p,
+                "present": present,
+                "school_days": school_days,
+                "rate": round(100 * present / school_days) if school_days else None,
+            }
+        )
+
+    records = conn.execute(
+        "SELECT a.*, p.name AS period_name FROM attendance a "
+        "JOIN periods p ON p.id = a.period_id "
+        "WHERE a.student_id = ? AND a.day BETWEEN ? AND ? "
+        "ORDER BY a.day DESC, p.sort_order",
+        (student_id, start, end),
+    ).fetchall()
+    conn.close()
+    return render_template(
+        "student.html",
+        student=student,
+        enrolled=enrolled,
+        per_period=per_period,
+        records=records,
+        start=start,
+        end=end,
+        school_days=school_days,
+    )
+
+
+@app.route("/reports/absences.csv")
+def absences_export():
+    """CSV of every expected-but-absent slot across a date range."""
+    end = request.args.get("end") or date.today().isoformat()
+    start = request.args.get("start") or end
+    conn = db.get_db()
+    per_period = db.enrollments_exist(conn)
+    periods = db.list_periods(conn)
+    school_days = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT day FROM attendance WHERE day BETWEEN ? AND ? ORDER BY day",
+            (start, end),
+        ).fetchall()
+    ]
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["day", "period", "student_id", "name", "grade"])
+    for day in school_days:
+        for p in periods:
+            if per_period:
+                expected = conn.execute(
+                    "SELECT s.student_id, s.name, s.grade FROM enrollments e "
+                    "JOIN students s ON s.student_id = e.student_id AND s.active = 1 "
+                    "WHERE e.period_id = ?",
+                    (p["id"],),
+                ).fetchall()
+            else:
+                expected = conn.execute(
+                    "SELECT student_id, name, grade FROM students WHERE active = 1"
+                ).fetchall()
+            for s in expected:
+                present = conn.execute(
+                    "SELECT 1 FROM attendance "
+                    "WHERE student_id = ? AND period_id = ? AND day = ?",
+                    (s["student_id"], p["id"], day),
+                ).fetchone()
+                if not present:
+                    w.writerow(
+                        [day, p["name"], s["student_id"], s["name"], s["grade"] or ""]
+                    )
+    conn.close()
+    fname = f"absences_{start}_to_{end}.csv"
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 def _cli_import(path):
@@ -316,14 +602,24 @@ def _cli_import(path):
     print(f"Imported / updated {n} students from {path}")
 
 
+def _cli_import_schedule(path):
+    db.init_db()
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        added, skipped = import_enrollment_rows(csv.DictReader(f))
+    print(f"Imported / updated {added} enrollments from {path} (skipped {skipped})")
+
+
 if __name__ == "__main__":
     db.init_db()
     if len(sys.argv) >= 3 and sys.argv[1] == "import":
         _cli_import(sys.argv[2])
+    elif len(sys.argv) >= 3 and sys.argv[1] == "import-schedule":
+        _cli_import_schedule(sys.argv[2])
     else:
         from waitress import serve
 
         host, port = "0.0.0.0", 8000
         print(f"Attendance app running at http://{host}:{port}  (Ctrl+C to stop)")
-        print("  Kiosk:  /        Admin: /admin       Roster: /roster")
+        print("  Kiosk: /   Attendance: /admin   Reports: /reports   "
+              "Roster: /roster   Schedule: /schedule")
         serve(app, host=host, port=port)

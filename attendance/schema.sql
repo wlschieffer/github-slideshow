@@ -37,3 +37,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_unique
 
 CREATE INDEX IF NOT EXISTS idx_attendance_lookup
     ON attendance (day, period_id);
+
+-- Which students belong to which period (their class schedule). When this
+-- table has any rows, a period's *expected* roster is its enrolled students
+-- only. When it is empty, the app falls back to "all active students are
+-- expected every period" (whole-school mode).
+CREATE TABLE IF NOT EXISTS enrollments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    period_id  INTEGER NOT NULL,
+    section    TEXT,   -- optional class/section name, e.g. "Alg II - B"
+    room       TEXT,   -- optional room, e.g. "204"
+    FOREIGN KEY (student_id) REFERENCES students(student_id),
+    FOREIGN KEY (period_id)  REFERENCES periods(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_enroll_unique
+    ON enrollments (student_id, period_id);
