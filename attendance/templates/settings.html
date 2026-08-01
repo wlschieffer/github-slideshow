@@ -53,6 +53,22 @@
       for non-traditional days. Remember to set this back to <strong>Auto</strong> afterward.
     </p>
 
+    <!-- Scanner -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Scanner</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_scan') }}">
+      <label>Double-scan cooldown (milliseconds)
+        <input type="number" name="scan_cooldown_ms" value="{{ scan_cooldown_ms }}"
+               min="0" max="10000" step="100">
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <p class="muted">
+      Ignores a repeat read of the <em>same</em> ID within this many milliseconds,
+      so a badge that scans twice in one swipe only counts once. Different students
+      still scan instantly. Default 1500 (1.5&nbsp;s); lower it if check-ins feel
+      sluggish, raise it if double-reads still slip through. Set 0 to disable.
+    </p>
+
     <!-- Weekday map -->
     <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>
     <form method="post" action="{{ url_for('settings_weekdays') }}">

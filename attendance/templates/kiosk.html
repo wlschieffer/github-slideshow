@@ -97,13 +97,27 @@
       }
     }
 
+    // Double-scan guard: ignore a repeat read of the SAME id within the
+    // cooldown window (the scanner often fires twice as the badge moves in
+    // and away). Different ids still scan instantly, so the line isn't slowed.
+    const cooldownMs = {{ scan_cooldown_ms }};
+    let lastVal = '', lastTime = 0;
+
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         const v = input.value.trim();
         input.value = '';
-        if (v) submitScan(v);
         refocus();
+        if (!v) return;
+        const now = Date.now();
+        if (v === lastVal && (now - lastTime) < cooldownMs) {
+          lastTime = now;  // extend the window so triple-reads are caught too
+          return;          // swallow the duplicate read; banner stays as-is
+        }
+        lastVal = v;
+        lastTime = now;
+        submitScan(v);
       }
     });
   </script>

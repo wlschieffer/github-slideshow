@@ -107,8 +107,9 @@ def init_db():
                         (sid, prow["id"], start, end),
                     )
 
-    # Seed settings (mode + weekday map) if not present.
+    # Seed settings (mode + weekday map + scanner cooldown) if not present.
     _seed_setting(conn, "schedule_mode", "auto")
+    _seed_setting(conn, "scan_cooldown_ms", "1500")
     for wd, sname in WEEKDAY_DEFAULT.items():
         _seed_setting(conn, f"wd_{wd}", sname)
 

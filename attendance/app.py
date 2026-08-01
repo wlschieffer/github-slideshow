@@ -87,6 +87,7 @@ def kiosk():
     selected = request.args.get("period_id", type=int) or (
         cur["id"] if cur else (periods[0]["id"] if periods else None)
     )
+    cooldown = int(db.get_setting(conn, "scan_cooldown_ms", "1500") or 0)
     conn.close()
     return render_template(
         "kiosk.html",
@@ -94,6 +95,7 @@ def kiosk():
         selected_period=selected,
         current=cur,
         schedule_name=sched["name"] if sched else None,
+        scan_cooldown_ms=cooldown,
     )
 
 
@@ -467,6 +469,7 @@ def settings():
         ).fetchall()
     active = db.active_schedule(conn)
     current = db.current_period(conn)
+    cooldown = db.get_setting(conn, "scan_cooldown_ms", "1500")
     conn.close()
     return render_template(
         "settings.html",
@@ -477,6 +480,7 @@ def settings():
         sched_times=sched_times,
         active_name=active["name"] if active else None,
         current_name=current["name"] if current else None,
+        scan_cooldown_ms=cooldown,
     )
 
 
@@ -489,6 +493,21 @@ def settings_mode():
     conn.close()
     labels = {"auto": "Auto (by weekday)", "off": "Off (manual period)"}
     flash(f"Today's schedule set to: {labels.get(mode, mode)}.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/scan")
+def settings_scan():
+    """Save the double-scan cooldown (milliseconds)."""
+    try:
+        ms = max(0, min(10000, int(float(request.form.get("scan_cooldown_ms", "1500")))))
+    except (TypeError, ValueError):
+        ms = 1500
+    conn = db.get_db()
+    db.set_setting(conn, "scan_cooldown_ms", str(ms))
+    conn.commit()
+    conn.close()
+    flash(f"Scan cooldown set to {ms} ms.")
     return redirect(url_for("settings"))
 
 
