@@ -169,7 +169,9 @@
           <td class="muted">{{ s.student_id }}</td>
           <td>{{ s.name }}</td>
           <td>{{ s.grade or '' }}</td>
-          <td class="muted">{{ (enrolled_periods.get(s.student_id) or [])|join(', ') }}</td>
+          <td class="muted" style="font-size:.85rem; line-height:1.4">
+            {% for p in enrolled_periods.get(s.student_id) or [] %}{{ p }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          </td>
           <td>{% if s.active %}<span class="pill present">Active</span>{% else %}<span class="pill absent">Inactive</span>{% endif %}</td>
           <td>
             <form class="inline" method="post" action="{{ url_for('roster_student_toggle') }}">

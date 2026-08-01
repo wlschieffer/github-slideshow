@@ -352,15 +352,14 @@ def admin_export():
 # ---------------------------------------------------------------------------
 def _roster_context(conn):
     """Shared context for the roster page (student list + saved Canvas prefs)."""
-    # Map each student to the short labels of the periods they're enrolled in
-    # (e.g. "01, 02, Enrichment") so multi-period students are visible.
+    # Map each student to the full names of the periods they're enrolled in
+    # (e.g. "01 - First Period") so multi-period students are visible.
     enrolled_periods = {}
     for r in conn.execute(
         "SELECT e.student_id, p.name FROM enrollments e "
         "JOIN periods p ON p.id = e.period_id ORDER BY p.sort_order, p.name"
     ).fetchall():
-        short = r["name"].split(" - ")[0] if " - " in r["name"] else r["name"]
-        enrolled_periods.setdefault(r["student_id"], []).append(short)
+        enrolled_periods.setdefault(r["student_id"], []).append(r["name"])
     return {
         "students": conn.execute(
             "SELECT * FROM students ORDER BY active DESC, name"
