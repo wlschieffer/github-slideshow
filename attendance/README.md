@@ -158,7 +158,17 @@ you map **sections** to periods.
 Pending/invited enrollments are included, so courses that haven't started or
 aren't published yet still work. Re-running updates existing students and
 enrollments, so it's safe to run again when your Canvas rosters change.
-Students whose chosen ID field is empty are skipped and reported.
+Students whose chosen ID field is empty are skipped and **listed by name** so
+you can see who and why.
+
+IDs are gathered from three sources in order — the bulk course roster (the
+same data the People page shows, which carries SIS), then each student's
+profile, then their login records — so a student is only skipped if none of
+those expose an ID. That usually means a not-yet-activated account: Canvas
+may show the SIS on the People page before the API will hand it to a teacher
+token. For those, use **Add a student manually** below (type the SIS you see
+in People); the import's skipped list has an **Add manually** button that
+pre-fills the name and period.
 
 Students who scan into a period they aren't enrolled in still check in
 fine — they appear in an "Also checked in — not on this period's roster"

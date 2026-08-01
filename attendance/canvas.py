@@ -155,6 +155,20 @@ def fetch_course_user_index(base_url, token, course_id, timeout=20):
     return index
 
 
+def fetch_user_logins(base_url, token, user_id, timeout=20):
+    """A user's login/pseudonym records — the authoritative source for
+    sis_user_id and unique_id (login). Best-effort: {} if not permitted."""
+    base = base_url.rstrip("/")
+    url = f"{base}/api/v1/users/{user_id}/logins"
+    try:
+        r = requests.get(url, headers=_headers(token), timeout=timeout)
+        if r.status_code == 200 and isinstance(r.json(), list):
+            return r.json()
+    except requests.RequestException:
+        pass
+    return []
+
+
 def enrich_students(base_url, token, students, course_ids=None, timeout=20):
     """Fill in login_id / sis_user_id for brief student objects (from the
     section-students fallback). First from a bulk course-user index (the
@@ -190,6 +204,21 @@ def enrich_students(base_url, token, students, course_ids=None, timeout=20):
         for key in ("login_id", "sis_user_id", "integration_id"):
             if not s.get(key) and prof.get(key):
                 s[key] = prof[key]
+
+    # 3) Last resort: the user's login/pseudonym records (authoritative SIS).
+    for s in students:
+        if s.get("login_id") or s.get("sis_user_id"):
+            continue
+        uid = s.get("id")
+        if uid is None:
+            continue
+        for login in fetch_user_logins(base_url, token, uid, timeout):
+            if not s.get("sis_user_id") and login.get("sis_user_id"):
+                s["sis_user_id"] = login["sis_user_id"]
+            if not s.get("login_id") and login.get("unique_id"):
+                s["login_id"] = login["unique_id"]
+            if s.get("sis_user_id") or s.get("login_id"):
+                break
     return students
 
 

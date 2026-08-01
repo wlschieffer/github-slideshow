@@ -35,7 +35,7 @@
     </div>
     {% if import_result.skipped %}
     <table>
-      <thead><tr><th>Section</th><th>Name</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th></tr></thead>
+      <thead><tr><th>Section</th><th>Name</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th><th></th></tr></thead>
       <tbody>
         {% for r in import_result.skipped %}
         <tr>
@@ -44,10 +44,15 @@
           <td>{% if r.sis %}{{ r.sis }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
           <td>{% if r.login %}{{ r.login }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
           <td class="muted">{{ r.canvas_id }}</td>
+          <td><button type="button" class="ghost add-manual"
+                      data-name="{{ r.name }}" data-period="{{ r.period }}">Add manually</button></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+    <p class="muted">For a skipped student, look up their SIS/badge number on the
+       Canvas <em>People</em> page, click <strong>Add manually</strong> to pre-fill
+       their name and period below, type the ID, and add.</p>
     {% endif %}
     {% endif %}
 
@@ -176,6 +181,27 @@
     </form>
     {% endif %}
 
+    <!-- Manual add (failsafe for students Canvas won't hand over) -->
+    <h1 style="font-size:1.15rem; margin-top:1.75rem">Add a student manually</h1>
+    <form method="post" action="{{ url_for('roster_student_add') }}" class="controls" style="flex-wrap:wrap">
+      <label>ID (badge / SIS)
+        <input type="text" name="student_id" id="add_student_id" autocomplete="off" required>
+      </label>
+      <label>Name
+        <input type="text" name="name" id="add_name" autocomplete="off" required style="min-width:14rem">
+      </label>
+      <label>Grade
+        <input type="text" name="grade" id="add_grade" style="width:5rem">
+      </label>
+      <label>Periods <span class="muted">(e.g. 1 2 4)</span>
+        <input type="text" name="periods" id="add_periods" placeholder="1 2 4">
+      </label>
+      <button type="submit">Add student</button>
+    </form>
+    <p class="muted">Use this for students Canvas won't return (look up their
+       SIS/badge number on the Canvas People page and type it here). Re-importing
+       from Canvas later won't remove manually-added students.</p>
+
     <div style="display:flex; align-items:center; gap:1rem; margin-top:1.75rem">
       <h1 style="font-size:1.15rem; margin:0">Current roster ({{ students|length }})</h1>
       {% if students %}
@@ -218,5 +244,18 @@
     <p class="muted">No students yet — import above.</p>
     {% endif %}
   </div>
+
+  <script>
+    // "Add manually" on a skipped import row pre-fills the manual-add form.
+    document.querySelectorAll('.add-manual').forEach(function (b) {
+      b.addEventListener('click', function () {
+        document.getElementById('add_name').value = b.dataset.name || '';
+        document.getElementById('add_periods').value = b.dataset.period || '';
+        var idf = document.getElementById('add_student_id');
+        idf.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        idf.focus();
+      });
+    });
+  </script>
 </body>
 </html>

@@ -386,6 +386,42 @@ def roster_clear():
     return redirect(url_for("roster"))
 
 
+@app.post("/roster/student/add")
+def roster_student_add():
+    """Add (or update) one student by hand — the failsafe for students Canvas
+    won't hand over. Optionally enroll them in space-separated periods."""
+    student_id = request.form.get("student_id", "").strip()
+    name = request.form.get("name", "").strip()
+    grade = request.form.get("grade", "").strip() or None
+    periods_raw = request.form.get("periods", "")
+    if not student_id or not name:
+        flash("Enter at least an ID and a name to add a student.")
+        return redirect(url_for("roster"))
+    conn = db.get_db()
+    conn.execute(
+        "INSERT INTO students (student_id, name, grade, active) VALUES (?, ?, ?, 1) "
+        "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, "
+        "grade = excluded.grade, active = 1",
+        (student_id, name, grade),
+    )
+    added = []
+    for tok in _parse_ids(periods_raw):
+        pid = db.resolve_period(conn, tok)
+        if pid:
+            conn.execute(
+                "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
+                "ON CONFLICT(student_id, period_id) DO NOTHING",
+                (student_id, pid),
+            )
+            added.append(tok)
+    conn.commit()
+    conn.close()
+    msg = f"Added {name} ({student_id})"
+    msg += f" — period(s) {', '.join(added)}." if added else "."
+    flash(msg)
+    return redirect(url_for("roster"))
+
+
 @app.post("/roster/student/toggle")
 def roster_student_toggle():
     """Activate/deactivate a student (keeps their record and history)."""
@@ -625,6 +661,7 @@ def _canvas_import(fetched, id_field):
             if not student_id:
                 skipped.append({
                     "section": sid,
+                    "period": period,
                     "name": canvas.student_name(s),
                     "sis": s.get("sis_user_id"),
                     "login": s.get("login_id"),
