@@ -17,6 +17,9 @@ workbook. One Python process serves two interfaces on your network:
 - **Schedule** (`/schedule`) — import each student's class schedule so a
   period expects only its enrolled students (per-period class rosters).
 
+The staff pages are protected by a **PIN** (default `1234` — change it on
+the Settings page). The kiosk and scanning stay open for students.
+
 Data lives in **one SQLite file** (`data/attendance.db`) — back it up by
 copying that file. No database server to install or maintain.
 
@@ -156,8 +159,17 @@ history + absence exports**, roster/schedule CSV import/export, and
 multi-station use over the network.
 
 **Not built yet** (easy to add): ID expiration / active-status rules,
-in-vs-out direction, student photos on scan, dashboards/charts, and staff
-logins to protect the admin pages.
+in-vs-out direction, student photos on scan, and dashboards/charts.
+
+## Staff PIN
+
+The staff pages (Live, Reports, Roster, Schedule, Settings, and exports)
+require a **PIN**; the kiosk (`/`) and scanning stay open for students. The
+default PIN is **1234** — log in once and change it under **Settings →
+Staff PIN**. The PIN is stored only as a salted hash, and each install
+generates its own random session key in `data/secret_key` (kept out of git)
+so login cookies can't be forged. Forgot the PIN? Run `python app.py reset`
+(wipes data) or ask to have it reset.
 
 ## Notes for real deployment
 

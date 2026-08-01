@@ -9,6 +9,8 @@ import re
 import sqlite3
 from datetime import datetime
 
+from werkzeug.security import generate_password_hash
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("ATTENDANCE_DB", os.path.join(BASE_DIR, "data", "attendance.db"))
 SCHEMA_PATH = os.path.join(BASE_DIR, "schema.sql")
@@ -112,6 +114,16 @@ def init_db():
     _seed_setting(conn, "scan_cooldown_ms", "1500")
     for wd, sname in WEEKDAY_DEFAULT.items():
         _seed_setting(conn, f"wd_{wd}", sname)
+
+    # Seed the default staff PIN (1234) only if none is set. Compute the hash
+    # lazily so we don't re-hash on every startup.
+    if not conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'staff_pin_hash'"
+    ).fetchone():
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('staff_pin_hash', ?)",
+            (generate_password_hash("1234"),),
+        )
 
     conn.commit()
     conn.close()

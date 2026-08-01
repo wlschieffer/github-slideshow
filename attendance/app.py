@@ -14,6 +14,7 @@ import io
 import os
 import sys
 from datetime import date, datetime, timedelta
+from functools import wraps
 
 from flask import (
     Flask,
@@ -22,19 +23,80 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 
 app = Flask(__name__)
-app.secret_key = "attendance-local-dev"  # only used for flash messages
+
+
+def _load_secret_key():
+    """Per-install random key stored next to the database (outside git), so
+    signed session cookies can't be forged even though the code is public."""
+    os.makedirs(os.path.dirname(db.DB_PATH), exist_ok=True)
+    path = os.path.join(os.path.dirname(db.DB_PATH), "secret_key")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    key = os.urandom(32)
+    with open(path, "wb") as f:
+        f.write(key)
+    return key
+
+
+app.secret_key = _load_secret_key()
+app.permanent_session_lifetime = timedelta(hours=12)
+
+# Endpoints reachable without the staff PIN: the student kiosk, the scan
+# endpoint it calls, the login page itself, and static files.
+PUBLIC_ENDPOINTS = {"kiosk", "scan", "staff_login", "static"}
 
 
 @app.before_request
-def _ensure_db():
+def _ensure_db_and_auth():
     # Cheap and idempotent; guarantees tables/periods exist on first hit.
     db.init_db()
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return
+    if not session.get("staff_authed"):
+        return redirect(url_for("staff_login", next=request.full_path))
+
+
+def _safe_next(target):
+    """Only allow same-site relative redirects after login."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return url_for("admin")
+
+
+# ---------------------------------------------------------------------------
+# Staff PIN login
+# ---------------------------------------------------------------------------
+@app.route("/staff/login", methods=["GET", "POST"])
+def staff_login():
+    if session.get("staff_authed"):
+        return redirect(_safe_next(request.args.get("next")))
+    error = None
+    if request.method == "POST":
+        pin = request.form.get("pin", "")
+        conn = db.get_db()
+        pin_hash = db.get_setting(conn, "staff_pin_hash", "")
+        conn.close()
+        if pin_hash and check_password_hash(pin_hash, pin):
+            session.permanent = True
+            session["staff_authed"] = True
+            return redirect(_safe_next(request.form.get("next")))
+        error = "Incorrect PIN."
+    return render_template("login.html", error=error, next=request.args.get("next", ""))
+
+
+@app.route("/staff/logout")
+def staff_logout():
+    session.pop("staff_authed", None)
+    return redirect(url_for("kiosk"))
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +555,28 @@ def settings_mode():
     conn.close()
     labels = {"auto": "Auto (by weekday)", "off": "Off (manual period)"}
     flash(f"Today's schedule set to: {labels.get(mode, mode)}.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/pin")
+def settings_pin():
+    """Change the staff PIN (requires the current PIN)."""
+    current = request.form.get("current_pin", "")
+    new = request.form.get("new_pin", "").strip()
+    conn = db.get_db()
+    pin_hash = db.get_setting(conn, "staff_pin_hash", "")
+    if not (pin_hash and check_password_hash(pin_hash, current)):
+        conn.close()
+        flash("Current PIN is incorrect — PIN not changed.")
+        return redirect(url_for("settings"))
+    if len(new) < 4 or not new.isdigit():
+        conn.close()
+        flash("New PIN must be at least 4 digits — PIN not changed.")
+        return redirect(url_for("settings"))
+    db.set_setting(conn, "staff_pin_hash", generate_password_hash(new))
+    conn.commit()
+    conn.close()
+    flash("Staff PIN updated.")
     return redirect(url_for("settings"))
 
 

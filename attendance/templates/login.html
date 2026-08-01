@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staff login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="kiosk">
+  <div class="topnav">
+    <span class="brand">Attendance · Staff login</span>
+    <a href="{{ url_for('kiosk') }}">&lsaquo;&nbsp;Kiosk</a>
+  </div>
+
+  <div class="kiosk-main">
+    <div class="banner idle" style="width:min(420px,92vw)">
+      <div class="status" style="font-size:1.5rem">Staff PIN</div>
+      <div class="sub">Enter your PIN to reach the staff pages</div>
+    </div>
+
+    <form method="post" action="{{ url_for('staff_login') }}"
+          style="display:flex; flex-direction:column; gap:1rem; align-items:center">
+      <input type="hidden" name="next" value="{{ next }}">
+      <input type="password" name="pin" inputmode="numeric" autocomplete="off"
+             autofocus class="scan-input" style="width:min(320px,80vw)"
+             placeholder="PIN">
+      <button type="submit" style="font-size:1.1rem; padding:.6rem 1.4rem">Log in</button>
+      {% if error %}<div class="banner unknown" style="width:min(320px,80vw); padding:.6rem">{{ error }}</div>{% endif %}
+    </form>
+    <p class="hint">Default PIN is <strong>1234</strong> — change it on the Settings page after logging in.</p>
+  </div>
+</body>
+</html>

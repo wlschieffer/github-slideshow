@@ -15,6 +15,7 @@
     <a href="{{ url_for('roster') }}">Roster</a>
     <a href="{{ url_for('schedule') }}">Schedule</a>
     <a href="{{ url_for('settings') }}">Settings</a>
+    <a href="{{ url_for('staff_logout') }}">Log&nbsp;out</a>
   </div>
 
   <div class="wrap">
@@ -68,6 +69,21 @@
       still scan instantly. Default 1500 (1.5&nbsp;s); lower it if check-ins feel
       sluggish, raise it if double-reads still slip through. Set 0 to disable.
     </p>
+
+    <!-- Staff PIN -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Staff PIN</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_pin') }}">
+      <label>Current PIN
+        <input type="password" name="current_pin" inputmode="numeric" autocomplete="off" required>
+      </label>
+      <label>New PIN (4+ digits)
+        <input type="password" name="new_pin" inputmode="numeric" autocomplete="off" required>
+      </label>
+      <button type="submit">Change PIN</button>
+    </form>
+    <p class="muted">Protects the staff pages (Live, Reports, Roster, Schedule,
+       Settings). The kiosk and scanning stay open for students. Default is
+       <strong>1234</strong> — change it here.</p>
 
     <!-- Weekday map -->
     <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>

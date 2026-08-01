@@ -1,4 +1,5 @@
 .venv/
 data/*.db
+data/secret_key
 __pycache__/
 *.pyc
