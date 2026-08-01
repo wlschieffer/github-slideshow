@@ -456,6 +456,12 @@ def roster_canvas():
             (sid, period, canvas.fetch_section_students(base_url, token, sid))
             for sid, period in smap
         ]
+        # Brief student objects (from the section fallback) lack login_id/SIS;
+        # fill them in per-student so the preview can show a usable ID.
+        canvas.enrich_students(
+            base_url, token,
+            [s for _, _, students in fetched for s in students],
+        )
     except canvas.CanvasError as e:
         flash(str(e))
         return redirect(url_for("roster"))

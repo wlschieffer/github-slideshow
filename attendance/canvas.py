@@ -109,6 +109,40 @@ def fetch_section_students(base_url, token, section_id, timeout=20):
     return list(obj.get("students") or [])
 
 
+def fetch_user_profile(base_url, token, user_id, timeout=20):
+    """Fetch a single user's profile (has login_id, and sis_user_id if the
+    token is permitted). Returns {} on any error so enrichment is best-effort."""
+    base = base_url.rstrip("/")
+    url = f"{base}/api/v1/users/{user_id}/profile"
+    try:
+        r = requests.get(url, headers=_headers(token), timeout=timeout)
+        if r.status_code == 200:
+            return r.json() or {}
+    except requests.RequestException:
+        pass
+    return {}
+
+
+def enrich_students(base_url, token, students, timeout=20):
+    """Fill in login_id / sis_user_id for brief student objects (as returned
+    by the section-students fallback) via per-user profile lookups. Cached by
+    Canvas user id so each student is fetched at most once. Mutates in place."""
+    cache = {}
+    for s in students:
+        if s.get("login_id") or s.get("sis_user_id"):
+            continue
+        uid = s.get("id")
+        if uid is None:
+            continue
+        if uid not in cache:
+            cache[uid] = fetch_user_profile(base_url, token, uid, timeout)
+        prof = cache[uid]
+        for key in ("login_id", "sis_user_id", "integration_id"):
+            if not s.get(key) and prof.get(key):
+                s[key] = prof[key]
+    return students
+
+
 def extract_id(student, id_field):
     """Pull the chosen identifier from a student object as a string, or None."""
     value = student.get(id_field)
