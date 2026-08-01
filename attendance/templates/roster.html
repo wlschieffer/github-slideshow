@@ -39,10 +39,12 @@
     <!-- Canvas LMS import (cross-listed: each SECTION maps to a period) -->
     <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>
     <p class="muted" style="max-width:660px">Because your courses are cross-listed
-       with a section per period, you map <strong>sections</strong> (not whole
-       courses) to periods. Enter your course IDs and click <strong>List
-       sections</strong> to find the section IDs, fill in a period for each, then
-       Preview and Import. Pending/not-yet-active enrollments are included.</p>
+       with a section per period, you map <strong>sections</strong> to periods.
+       Enter your course IDs and click <strong>List sections</strong>; a period is
+       filled in for each section from its name (adjust as needed), then Preview
+       and Import. Pending/not-yet-active enrollments are included.</p>
+
+    <!-- Step 1: discover sections -->
     <form method="post" action="{{ url_for('roster_canvas') }}"
           style="display:flex; flex-direction:column; gap:.75rem; max-width:660px">
       <label>Canvas site URL
@@ -60,47 +62,51 @@
       <div>
         <button type="submit" name="action" value="sections">List sections</button>
       </div>
+    </form>
 
-      {% if sections is defined and sections %}
+    <!-- Step 2: map each section to a period, then preview / import -->
+    {% if sections is defined and sections %}
+    <form method="post" action="{{ url_for('roster_canvas') }}" style="margin-top:1rem; max-width:760px">
+      <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
+      <input type="hidden" name="token" value="{{ canvas_token or '' }}">
+      <input type="hidden" name="section_ids" value="{{ section_ids }}">
       <div class="flash" style="background:#1e3a8a; border-color:#3b82f6">
-        Found {{ sections|length }} section(s). Copy the IDs into the map below and
-        set each period. <strong>Canvas #</strong> is Canvas's own student count;
-        <strong>Retrieved</strong> is how many this app can actually read. If
-        Retrieved is 0 while Canvas # shows students, the token can see the section
-        but not its enrollments (a permissions issue) — tell me and we'll switch
-        to the gradebook-CSV route.
+        Found {{ sections|length }} section(s). The <strong>Period</strong> box is
+        pre-filled from each section's name — check it and fix any that are wrong.
+        <strong>Retrieved</strong> is how many students this app can read.
       </div>
       <table>
-        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Canvas #</th><th>Retrieved</th></tr></thead>
+        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Canvas #</th><th>Retrieved</th><th>Period</th></tr></thead>
         <tbody>
           {% for s in sections %}
-          <tr><td class="muted">{{ s.course }}</td><td><strong>{{ s.id }}</strong></td>
-              <td>{{ s.name }}</td>
-              <td class="muted">{{ s.count if s.count is not none else '—' }}</td>
-              <td>{% if s.retrieved is none %}<span class="pill absent">error</span>{% elif s.retrieved == 0 %}<span class="pill absent">0</span>{% else %}<strong>{{ s.retrieved }}</strong>{% endif %}</td></tr>
+          <tr>
+            <td class="muted">{{ s.course }}</td>
+            <td class="muted">{{ s.id }}</td>
+            <td>{{ s.name }}</td>
+            <td class="muted">{{ s.count if s.count is not none else '—' }}</td>
+            <td>{% if s.retrieved is none %}<span class="pill absent">error</span>{% elif s.retrieved == 0 %}<span class="pill absent">0</span>{% else %}<strong>{{ s.retrieved }}</strong>{% endif %}</td>
+            <td><input type="text" name="period_{{ s.id }}" value="{{ s.period_guess }}"
+                       style="width:6rem" placeholder="e.g. 1"></td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
-      {% endif %}
-
-      <label>Sections → period <span class="muted">(one per line: <code>section_id, period</code>)</span>
-        <textarea name="section_map" rows="4"
-                  placeholder="8901234, 1&#10;8901235, 4&#10;8901236, 6">{{ canvas_section_map or suggested_map or '' }}</textarea>
-      </label>
-      <label>ID to use for scanning
-        <select name="id_field">
-          {% for key, label in id_fields.items() %}
-            <option value="{{ key }}" {{ 'selected' if canvas_id_field == key }}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <div>
+      <div class="controls" style="margin-top:1rem">
+        <label>ID to use for scanning
+          <select name="id_field">
+            {% for key, label in id_fields.items() %}
+              <option value="{{ key }}" {{ 'selected' if canvas_id_field == key }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <button type="submit" name="action" value="preview">Preview</button>
         <button type="submit" name="action" value="import" class="ghost">Import now</button>
       </div>
     </form>
     <p class="muted"><strong>Preview first</strong> to confirm the ID column matches
-       your badges, then import. Your token is never written to disk.</p>
+       your badges, then import. Your token is never written to disk.
+       Leave a section's Period blank to skip it.</p>
+    {% endif %}
 
     {% if preview %}
     <div class="flash" style="background:#064e3b; border-color:#16a34a">
@@ -135,7 +141,10 @@
     <form method="post" action="{{ url_for('roster_canvas') }}" style="margin:.75rem 0 0">
       <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
       <input type="hidden" name="token" value="{{ canvas_token }}">
-      <input type="hidden" name="section_map" value="{{ canvas_section_map }}">
+      <input type="hidden" name="section_ids" value="{{ section_ids }}">
+      {% for sid, period in mapped %}
+        <input type="hidden" name="period_{{ sid }}" value="{{ period }}">
+      {% endfor %}
       <input type="hidden" name="id_field" value="{{ canvas_id_field }}">
       <button type="submit" name="action" value="import">Looks right — import these</button>
     </form>

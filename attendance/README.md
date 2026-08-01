@@ -141,10 +141,13 @@ you map **sections** to periods.
 2. On the Roster page, enter the **Canvas site URL**, paste the **API token**
    (never written to disk), and enter your **Course IDs** (the number in each
    course's Canvas URL).
-3. Click **List sections** — it shows every section's ID, name, and student
-   count.
-4. Fill in **Sections → period** (one `section_id, period` per line) and pick
-   the **ID to use for scanning** (default **SIS ID**).
+3. Click **List sections** — it shows every section's ID, name, student
+   count, and how many students the app can actually **retrieve**, with a
+   **Period** box next to each section that is **pre-filled from the section
+   name** (e.g. "Bio - P3" → 3). Check/adjust the periods; leave one blank to
+   skip that section.
+4. Pick the **ID to use for scanning** (default **SIS ID**; **Login ID** is a
+   common alternative if it holds the badge number).
 5. Click **Preview**. It shows a sample of students with *all* their ID
    fields side by side so you can confirm the highlighted column matches a
    real badge — nothing is imported yet. If that column is blank, your token

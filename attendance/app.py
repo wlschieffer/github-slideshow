@@ -387,6 +387,38 @@ def _parse_section_lines(raw):
     return pairs
 
 
+def _guess_period(name):
+    """Best-effort period from a section name, e.g. 'Bio - P3' -> '3'."""
+    n = name or ""
+    if re.search(r"enrich", n, re.I):
+        return "Enrichment"
+    patterns = [
+        r"(?:period|per|hour|hr|block|mod)\s*#?\s*(\d{1,2})",  # "Period 3", "Hr 3"
+        r"\bp\s*#?\s*(\d{1,2})\b",                             # "P3", "P 3"
+        r"\b(\d{1,2})(?:st|nd|rd|th)\b",                       # "3rd"
+    ]
+    for pat in patterns:
+        m = re.search(pat, n, re.I)
+        if m:
+            return m.group(1)
+    m = re.search(r"\b(\d{1,2})\b", n)  # last resort: any 1-2 digit number
+    return m.group(1) if m else ""
+
+
+def _section_map_from_form():
+    """Build [(section_id, period), ...] from per-row period_<id> inputs,
+    falling back to the legacy 'section_map' textarea."""
+    ids = _parse_ids(request.form.get("section_ids", ""))
+    if ids:
+        pairs = []
+        for sid in ids:
+            period = request.form.get(f"period_{sid}", "").strip()
+            if period:
+                pairs.append((sid, period))
+        return pairs
+    return _parse_section_lines(request.form.get("section_map", ""))
+
+
 @app.post("/roster/canvas")
 def roster_canvas():
     """Canvas roster import. Three actions:
@@ -398,7 +430,6 @@ def roster_canvas():
     token = request.form.get("token", "").strip()
     id_field = request.form.get("id_field", "sis_user_id")
     course_ids_raw = request.form.get("course_ids", "")
-    section_map_raw = request.form.get("section_map", "")
     action = request.form.get("action", "sections")
 
     # Remember the non-secret preferences (never the token).
@@ -406,7 +437,6 @@ def roster_canvas():
     db.set_setting(conn, "canvas_base_url", base_url)
     db.set_setting(conn, "canvas_id_field", id_field)
     db.set_setting(conn, "canvas_course_ids", course_ids_raw)
-    db.set_setting(conn, "canvas_section_map", section_map_raw)
     conn.commit()
     conn.close()
 
@@ -420,12 +450,15 @@ def roster_canvas():
             if not ids:
                 flash("Enter at least one course ID to list its sections.")
                 return redirect(url_for("roster"))
+            # Prefill periods from a previously saved map, else guess from name.
+            conn = db.get_db()
+            saved = dict(_parse_section_lines(
+                db.get_setting(conn, "canvas_section_map", "")))
+            conn.close()
             sections = []
             for cid in ids:
                 for s in canvas.fetch_sections(base_url, token, cid):
                     sid = s.get("id")
-                    # Diagnostic: how many students we can actually retrieve,
-                    # alongside Canvas's own reported count.
                     try:
                         retrieved = len(canvas.fetch_section_students(base_url, token, sid))
                     except canvas.CanvasError:
@@ -436,22 +469,30 @@ def roster_canvas():
                         "name": s.get("name"),
                         "count": s.get("total_students"),
                         "retrieved": retrieved,
+                        "period_guess": saved.get(str(sid)) or _guess_period(s.get("name")),
                     })
-            suggested = "\n".join(f"{s['id']}, " for s in sections)
+            section_ids = ",".join(str(s["id"]) for s in sections)
             conn = db.get_db()
             ctx = _roster_context(conn)
             conn.close()
             return render_template(
-                "roster.html", sections=sections, suggested_map=suggested,
+                "roster.html", sections=sections, section_ids=section_ids,
                 canvas_token=token, **ctx,
             )
 
-        # preview / import both need the section -> period map.
-        smap = _parse_section_lines(section_map_raw)
+        # preview / import both need the section -> period map (per-row inputs).
+        smap = _section_map_from_form()
         if not smap:
-            flash("Add at least one 'section_id, period' line "
-                  "(use 'List sections' to find the IDs).")
+            flash("Enter a period for at least one section "
+                  "(use 'List sections' first).")
             return redirect(url_for("roster"))
+        # Remember the map so 'List sections' can prefill it next time.
+        conn = db.get_db()
+        db.set_setting(conn, "canvas_section_map",
+                       "\n".join(f"{sid}, {p}" for sid, p in smap))
+        conn.commit()
+        conn.close()
+
         fetched = [
             (sid, period, canvas.fetch_section_students(base_url, token, sid))
             for sid, period in smap
@@ -476,10 +517,14 @@ def roster_canvas():
         return redirect(url_for("roster"))
 
     preview = _canvas_preview(fetched, id_field)
+    section_ids = ",".join(sid for sid, _ in smap)
     conn = db.get_db()
     ctx = _roster_context(conn)
     conn.close()
-    return render_template("roster.html", preview=preview, canvas_token=token, **ctx)
+    return render_template(
+        "roster.html", preview=preview, mapped=smap, section_ids=section_ids,
+        canvas_token=token, **ctx,
+    )
 
 
 def _canvas_preview(fetched, id_field):
