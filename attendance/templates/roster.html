@@ -36,6 +36,77 @@
     <p class="muted">Importing updates existing students by ID and adds new ones.
        Export your current Excel roster to CSV with these column headers to load it in.</p>
 
+    <!-- Canvas LMS import -->
+    <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>
+    <form method="post" action="{{ url_for('roster_canvas') }}"
+          style="display:flex; flex-direction:column; gap:.75rem; max-width:640px">
+      <label>Canvas site URL
+        <input type="url" name="base_url" value="{{ canvas_base_url }}"
+               placeholder="https://yourschool.instructure.com">
+      </label>
+      <label>API token <span class="muted">(paste each time — never saved)</span>
+        <input type="password" name="token" autocomplete="off"
+               placeholder="Canvas access token">
+      </label>
+      <label>Courses → period <span class="muted">(one per line: <code>course_id, period</code>)</span>
+        <textarea name="courses" rows="4"
+                  placeholder="1234567, 1&#10;1234568, 4&#10;1234569, 6">{{ canvas_courses }}</textarea>
+      </label>
+      <label>ID to use for scanning
+        <select name="id_field">
+          {% for key, label in id_fields.items() %}
+            <option value="{{ key }}" {{ 'selected' if canvas_id_field == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div>
+        <button type="submit" name="action" value="preview">Preview</button>
+        <button type="submit" name="action" value="import" class="ghost">Import now</button>
+      </div>
+    </form>
+    <p class="muted">Each course becomes a period. <strong>Preview first</strong> to
+       confirm the ID column matches your badges, then import. Your token is never
+       written to disk.</p>
+
+    {% if preview %}
+    <div class="flash" style="background:#064e3b; border-color:#16a34a">
+      <strong>Preview only — nothing imported yet.</strong>
+      Found {{ preview.total }} students across {{ preview.counts|length }} course(s)
+      ({% for c in preview.counts %}{{ c.course }}→P{{ c.period }}: {{ c.n }}{{ ', ' if not loop.last }}{% endfor %}).
+      {% if preview.missing %}
+        <br><strong>{{ preview.missing }}</strong> student(s) have no
+        {{ preview.id_label }} — those would be skipped. Try a different "ID to use"
+        if the highlighted column is empty.
+      {% endif %}
+    </div>
+    <table>
+      <thead><tr>
+        <th>Course</th><th>Period</th><th>Name</th>
+        <th>{{ preview.id_label }} (used)</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th>
+      </tr></thead>
+      <tbody>
+        {% for r in preview.rows %}
+        <tr>
+          <td class="muted">{{ r.course }}</td>
+          <td>{{ r.period }}</td>
+          <td>{{ r.name }}</td>
+          <td>{% if r.chosen %}<strong>{{ r.chosen }}</strong>{% else %}<span class="pill absent">missing</span>{% endif %}</td>
+          <td class="muted">{{ r.sis or '' }}</td>
+          <td class="muted">{{ r.login or '' }}</td>
+          <td class="muted">{{ r.canvas_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="{{ url_for('roster_canvas') }}" style="margin:.75rem 0 0">
+      <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
+      <input type="hidden" name="token" value="{{ canvas_token }}">
+      <input type="hidden" name="courses" value="{{ canvas_courses }}">
+      <input type="hidden" name="id_field" value="{{ canvas_id_field }}">
+      <button type="submit" name="action" value="import">Looks right — import these</button>
+    </form>
+    {% endif %}
+
     {% if students %}
     <table>
       <thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Active</th></tr></thead>

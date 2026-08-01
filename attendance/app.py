@@ -28,6 +28,7 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import canvas
 import db
 
 app = Flask(__name__)
@@ -348,14 +349,146 @@ def admin_export():
 # ---------------------------------------------------------------------------
 # Roster management
 # ---------------------------------------------------------------------------
+def _roster_context(conn):
+    """Shared context for the roster page (student list + saved Canvas prefs)."""
+    return {
+        "students": conn.execute(
+            "SELECT * FROM students ORDER BY active DESC, name"
+        ).fetchall(),
+        "canvas_base_url": db.get_setting(conn, "canvas_base_url", ""),
+        "canvas_id_field": db.get_setting(conn, "canvas_id_field", "sis_user_id"),
+        "canvas_courses": db.get_setting(conn, "canvas_courses", ""),
+        "id_fields": canvas.ID_FIELDS,
+    }
+
+
 @app.route("/roster")
 def roster():
     conn = db.get_db()
-    students = conn.execute(
-        "SELECT * FROM students ORDER BY active DESC, name"
-    ).fetchall()
+    ctx = _roster_context(conn)
     conn.close()
-    return render_template("roster.html", students=students)
+    return render_template("roster.html", **ctx)
+
+
+def _parse_course_lines(raw):
+    """Parse the 'course_id, period' textarea into [(course_id, period), ...]."""
+    pairs = []
+    for line in (raw or "").splitlines():
+        parts = [p.strip() for p in line.replace("\t", ",").split(",")]
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            pairs.append((parts[0], parts[1]))
+    return pairs
+
+
+@app.post("/roster/canvas")
+def roster_canvas():
+    """Preview or import a roster from Canvas. Each course maps to a period."""
+    base_url = request.form.get("base_url", "").strip()
+    token = request.form.get("token", "").strip()
+    id_field = request.form.get("id_field", "sis_user_id")
+    courses_raw = request.form.get("courses", "")
+    action = request.form.get("action", "preview")
+
+    # Remember the non-secret preferences (never the token).
+    conn = db.get_db()
+    db.set_setting(conn, "canvas_base_url", base_url)
+    db.set_setting(conn, "canvas_id_field", id_field)
+    db.set_setting(conn, "canvas_courses", courses_raw)
+    conn.commit()
+    conn.close()
+
+    course_map = _parse_course_lines(courses_raw)
+    if not base_url or not token or not course_map:
+        flash("Enter the Canvas site URL, an API token, and at least one "
+              "'course_id, period' line.")
+        return redirect(url_for("roster"))
+
+    # Fetch every listed course up front (shared by preview and import).
+    try:
+        fetched = [
+            (cid, period, canvas.fetch_course_students(base_url, token, cid))
+            for cid, period in course_map
+        ]
+    except canvas.CanvasError as e:
+        flash(str(e))
+        return redirect(url_for("roster"))
+
+    if action == "import":
+        n_students, n_enroll, skipped = _canvas_import(fetched, id_field)
+        msg = f"Canvas import complete: {n_students} students, {n_enroll} enrollments."
+        if skipped:
+            label = canvas.ID_FIELDS.get(id_field, id_field)
+            msg += f" Skipped {skipped} with no {label}."
+        flash(msg)
+        return redirect(url_for("roster"))
+
+    # Preview: show a sample with every ID field so the user can confirm.
+    preview = _canvas_preview(fetched, id_field)
+    conn = db.get_db()
+    ctx = _roster_context(conn)
+    conn.close()
+    return render_template("roster.html", preview=preview, canvas_token=token, **ctx)
+
+
+def _canvas_preview(fetched, id_field):
+    rows, counts, missing, total = [], [], 0, 0
+    for cid, period, students in fetched:
+        counts.append({"course": cid, "period": period, "n": len(students)})
+        for s in students:
+            total += 1
+            if not canvas.extract_id(s, id_field):
+                missing += 1
+        for s in students[:5]:
+            rows.append({
+                "course": cid, "period": period,
+                "name": canvas.student_name(s),
+                "chosen": canvas.extract_id(s, id_field),
+                "sis": s.get("sis_user_id"),
+                "login": s.get("login_id"),
+                "canvas_id": s.get("id"),
+            })
+    return {
+        "rows": rows, "counts": counts, "missing": missing, "total": total,
+        "id_label": canvas.ID_FIELDS.get(id_field, id_field),
+    }
+
+
+def _canvas_import(fetched, id_field):
+    conn = db.get_db()
+    seen_students, n_enroll, skipped = set(), 0, 0
+    for cid, period, students in fetched:
+        pid = db.resolve_period(conn, period)
+        if pid is None:
+            order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM periods"
+            ).fetchone()[0]
+            pid = conn.execute(
+                "INSERT INTO periods (name, start_time, end_time, sort_order) "
+                "VALUES (?, '00:00', '00:00', ?)",
+                (period.strip().title(), order),
+            ).lastrowid
+        for s in students:
+            sid = canvas.extract_id(s, id_field)
+            if not sid:
+                skipped += 1
+                continue
+            conn.execute(
+                "INSERT INTO students (student_id, name, grade, active) "
+                "VALUES (?, ?, NULL, 1) "
+                "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, active = 1",
+                (sid, canvas.student_name(s)),
+            )
+            seen_students.add(sid)
+            conn.execute(
+                "INSERT INTO enrollments (student_id, period_id, section, room) "
+                "VALUES (?, ?, ?, NULL) "
+                "ON CONFLICT(student_id, period_id) DO UPDATE SET section = excluded.section",
+                (sid, pid, f"Canvas {cid}"),
+            )
+            n_enroll += 1
+    conn.commit()
+    conn.close()
+    return len(seen_students), n_enroll, skipped
 
 
 @app.post("/roster/import")

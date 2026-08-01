@@ -52,10 +52,13 @@ a { color: #93c5fd; }
 .banner.duplicate { background: var(--warn); color: white; }
 .banner.unknown, .banner.inactive { background: var(--bad); color: white; }
 .period-picker { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
-select, input[type=date] {
+select, input[type=date], input[type=url], input[type=password],
+input[type=number], input[type=time], input[type=text], textarea {
   background: #0b1220; color: var(--ink); border: 1px solid var(--line);
   border-radius: 6px; padding: .4rem .6rem; font-size: 1rem;
+  font-family: inherit;
 }
+textarea { width: 100%; resize: vertical; }
 
 /* ---- Admin / roster ---- */
 h1 { font-size: 1.5rem; }
