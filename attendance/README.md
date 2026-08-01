@@ -36,6 +36,19 @@ python3 -m venv .venv
 .venv/bin/python app.py
 ```
 
+### One-click start (after the one-time setup above)
+
+Instead of typing the run command each time, double-click the launcher in
+the `attendance` folder:
+
+- **macOS:** `start.command`
+- **Windows:** `start.bat`
+
+Each one activates the virtual environment and starts the server in a
+window; close the window (or press Control-C / Ctrl+C) to stop it. On the
+first macOS double-click you may need to right-click → Open once to get
+past Gatekeeper.
+
 Then open:
 
 - Student scan station → `http://<this-computer-ip>:8000/`
