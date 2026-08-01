@@ -136,10 +136,47 @@ def fetch_user_profile(base_url, token, user_id, timeout=20, retries=3):
     return {}
 
 
-def enrich_students(base_url, token, students, timeout=20):
-    """Fill in login_id / sis_user_id for brief student objects (as returned
-    by the section-students fallback) via per-user profile lookups. Cached by
-    Canvas user id so each student is fetched at most once. Mutates in place."""
+def fetch_course_user_index(base_url, token, course_id, timeout=20):
+    """Index a course's students by Canvas user id, the same way the People
+    page reads them — so sis_user_id / login_id come through when the token
+    has course-level permission to view them. Broad enrollment states so
+    invited / not-yet-active students are included."""
+    base = base_url.rstrip("/")
+    url = f"{base}/api/v1/courses/{course_id}/users"
+    params = {
+        "enrollment_type[]": "student",
+        "enrollment_state[]": ["active", "invited", "completed", "inactive", "rejected"],
+        "per_page": 100,
+    }
+    index = {}
+    for u in _paginate(url, token, params, timeout):
+        if u.get("id") is not None:
+            index[u["id"]] = u
+    return index
+
+
+def enrich_students(base_url, token, students, course_ids=None, timeout=20):
+    """Fill in login_id / sis_user_id for brief student objects (from the
+    section-students fallback). First from a bulk course-user index (the
+    People-equivalent, which carries SIS), then per-user profiles for any
+    still missing. Mutates in place."""
+    # 1) Bulk index from the course rosters (best source for SIS).
+    index = {}
+    for cid in (course_ids or []):
+        try:
+            index.update(fetch_course_user_index(base_url, token, cid, timeout))
+        except CanvasError:
+            pass
+    for s in students:
+        if s.get("login_id") or s.get("sis_user_id"):
+            continue
+        u = index.get(s.get("id"))
+        if u:
+            for key in ("sis_user_id", "login_id", "integration_id"):
+                if not s.get(key) and u.get(key):
+                    s[key] = u[key]
+
+    # 2) Per-user profile lookup for anyone still missing an id.
     cache = {}
     for s in students:
         if s.get("login_id") or s.get("sis_user_id"):

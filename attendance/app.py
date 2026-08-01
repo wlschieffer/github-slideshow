@@ -545,10 +545,15 @@ def roster_canvas():
             for sid, period in smap
         ]
         # Brief student objects (from the section fallback) lack login_id/SIS;
-        # fill them in per-student so the preview can show a usable ID.
+        # fill them in — first from the bulk course roster (which carries SIS
+        # like the People page), then per-student profiles as a backup.
+        conn = db.get_db()
+        course_ids = _parse_ids(db.get_setting(conn, "canvas_course_ids", ""))
+        conn.close()
         canvas.enrich_students(
             base_url, token,
             [s for _, _, students in fetched for s in students],
+            course_ids=course_ids,
         )
     except canvas.CanvasError as e:
         flash(str(e))
