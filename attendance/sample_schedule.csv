@@ -14,3 +14,17 @@ student_id,period,section,room
 1008,3,Chemistry,303
 1009,3,Chemistry,303
 1010,3,Physics,305
+1001,Enrichment,Advisory,104
+1002,Enrichment,Advisory,104
+1005,Enrichment,Advisory,108
+1001,4,US History,402
+1006,4,US History,402
+1007,4,World History,404
+1002,5,Spanish I,210
+1008,5,Spanish II,212
+1003,6,Art,120
+1009,6,Band,130
+1010,6,Choir,132
+1004,7,PE,Gym
+1005,7,PE,Gym
+1007,7,Health,140

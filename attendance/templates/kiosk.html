@@ -10,11 +10,15 @@
   <div class="topnav">
     <span class="brand">Scan In</span>
     <div class="period-picker">
-      Period:
+      {% if schedule_name %}
+        <span title="Today's bell schedule">{{ schedule_name }} · Period:</span>
+      {% else %}
+        <span title="Bell schedule is off — pick the period manually">Manual · Period:</span>
+      {% endif %}
       <select id="period">
         {% for p in periods %}
           <option value="{{ p.id }}" {{ 'selected' if p.id == selected_period }}>
-            {{ p.name }} ({{ p.start_time }}–{{ p.end_time }})
+            {{ p.name }}
           </option>
         {% endfor %}
       </select>
@@ -36,6 +40,19 @@
     const input = document.getElementById('scan');
     const banner = document.getElementById('banner');
     const periodSel = document.getElementById('period');
+
+    // When the bell schedule is off, the period is chosen manually — remember
+    // that choice across refreshes so a kiosk left running stays put.
+    const bellOn = {{ 'true' if schedule_name else 'false' }};
+    if (!bellOn) {
+      const saved = localStorage.getItem('manualPeriod');
+      if (saved && periodSel.querySelector('option[value="' + saved + '"]')) {
+        periodSel.value = saved;
+      }
+    }
+    periodSel.addEventListener('change', () => {
+      localStorage.setItem('manualPeriod', periodSel.value);
+    });
 
     // Keep focus on the input so the scanner always lands here.
     function refocus() { input.focus(); }

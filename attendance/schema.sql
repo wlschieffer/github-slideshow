@@ -54,3 +54,28 @@ CREATE TABLE IF NOT EXISTS enrollments (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_enroll_unique
     ON enrollments (student_id, period_id);
+
+-- Simple key/value app settings (bell-schedule mode, weekday map, etc.).
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
+-- Named daily schedules (e.g. "Enrichment", "Regular", "Pep Rally"). Each
+-- lays out different times for the same periods.
+CREATE TABLE IF NOT EXISTS schedules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL UNIQUE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- The time window for a given period within a given schedule.
+CREATE TABLE IF NOT EXISTS schedule_periods (
+    schedule_id INTEGER NOT NULL,
+    period_id   INTEGER NOT NULL,
+    start_time  TEXT NOT NULL,   -- "HH:MM", 24h
+    end_time    TEXT NOT NULL,   -- "HH:MM", 24h
+    PRIMARY KEY (schedule_id, period_id),
+    FOREIGN KEY (schedule_id) REFERENCES schedules(id),
+    FOREIGN KEY (period_id)   REFERENCES periods(id)
+);

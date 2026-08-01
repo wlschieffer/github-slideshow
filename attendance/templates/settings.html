@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings — Bell schedule</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Settings</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Schedule</a>
+    <a href="{{ url_for('settings') }}">Settings</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Bell schedule</h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+
+    <div class="stat" style="display:inline-block; margin-bottom:1rem">
+      <div class="l">Right now</div>
+      <div class="n" style="font-size:1.2rem">
+        {% if active_name %}{{ active_name }}{% else %}Off (manual){% endif %}
+        {% if current_name %}<span class="muted">· {{ current_name }} period</span>{% endif %}
+      </div>
+    </div>
+
+    <!-- Today's mode -->
+    <h1 style="font-size:1.15rem; margin-top:1rem">Today's schedule</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_mode') }}">
+      <label>Mode
+        <select name="schedule_mode">
+          <option value="auto" {{ 'selected' if mode == 'auto' }}>Auto (by weekday)</option>
+          {% for s in schedules %}
+            <option value="{{ s.name }}" {{ 'selected' if mode == s.name }}>Force: {{ s.name }}</option>
+          {% endfor %}
+          <option value="off" {{ 'selected' if mode == 'off' }}>Off — pick period manually</option>
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <p class="muted">
+      <strong>Auto</strong> follows the weekday map below. <strong>Force</strong> pins
+      a specific schedule for a special day (e.g. Pep Rally). <strong>Off</strong>
+      turns off automatic period detection so staff choose the period on the kiosk —
+      for non-traditional days. Remember to set this back to <strong>Auto</strong> afterward.
+    </p>
+
+    <!-- Weekday map -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>
+    <form method="post" action="{{ url_for('settings_weekdays') }}">
+      <table>
+        <thead><tr><th>Day</th><th>Schedule</th></tr></thead>
+        <tbody>
+          {% for wd in range(7) %}
+          <tr>
+            <td>{{ weekday_names[wd] }}</td>
+            <td>
+              <select name="wd_{{ wd }}">
+                <option value="" {{ 'selected' if weekday_map[wd] == '' }}>— none (no school) —</option>
+                {% for s in schedules %}
+                  <option value="{{ s.name }}" {{ 'selected' if weekday_map[wd] == s.name }}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" style="margin-top:1rem">Save weekday map</button>
+    </form>
+
+    <!-- Schedule time editor -->
+    <h1 style="font-size:1.15rem; margin-top:2rem">Edit schedule times</h1>
+    <p class="muted">Adjust the start/end time of any period within a schedule.
+       Times are 24-hour (e.g. 13:48 = 1:48&nbsp;PM).</p>
+    {% for s in schedules %}
+      <h1 style="font-size:1rem; margin-top:1.25rem">{{ s.name }}</h1>
+      <form method="post" action="{{ url_for('settings_times') }}">
+        <input type="hidden" name="schedule_id" value="{{ s.id }}">
+        <table>
+          <thead><tr><th>Period</th><th>Start</th><th>End</th></tr></thead>
+          <tbody>
+            {% for r in sched_times[s.id] %}
+            <tr>
+              <td>{{ r.period_name }}</td>
+              <td><input type="time" name="start_{{ r.period_id }}" value="{{ r.start_time }}"></td>
+              <td><input type="time" name="end_{{ r.period_id }}" value="{{ r.end_time }}"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <button type="submit" style="margin-top:.5rem">Save {{ s.name }} times</button>
+      </form>
+    {% endfor %}
+  </div>
+</body>
+</html>

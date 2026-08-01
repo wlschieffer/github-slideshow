@@ -13,17 +13,51 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("ATTENDANCE_DB", os.path.join(BASE_DIR, "data", "attendance.db"))
 SCHEMA_PATH = os.path.join(BASE_DIR, "schema.sql")
 
-# Default bell schedule seeded on first run. Edit these (or the periods
-# table) to match your real schedule.
-DEFAULT_PERIODS = [
-    ("Period 1", "08:00", "08:50", 1),
-    ("Period 2", "08:55", "09:45", 2),
-    ("Period 3", "09:50", "10:40", 3),
-    ("Period 4", "10:45", "11:35", 4),
-    ("Period 5", "11:40", "12:30", 5),
-    ("Period 6", "12:35", "13:25", 6),
-    ("Period 7", "13:30", "14:20", 7),
+# ---------------------------------------------------------------------------
+# Seed data — Jordan High School bell schedule, B Lunch (from the PDF).
+# Periods are the canonical list; each schedule gives them different times.
+# Times are 24h "HH:MM". Lunch is a time marker, not a scannable period, so
+# it is intentionally omitted.
+# ---------------------------------------------------------------------------
+# (name, sort_order)
+SEED_PERIODS = [
+    ("1st", 1), ("2nd", 2), ("3rd", 3), ("Enrichment", 4),
+    ("4th", 5), ("5th", 6), ("6th", 7), ("7th", 8),
 ]
+
+ENRICHMENT_TIMES = {  # Mon, Tue, Fri
+    "1st": ("07:15", "08:02"), "2nd": ("08:09", "08:56"),
+    "3rd": ("09:03", "09:50"), "Enrichment": ("09:50", "10:29"),
+    "4th": ("10:36", "11:23"), "5th": ("12:00", "12:47"),
+    "6th": ("12:54", "13:41"), "7th": ("13:48", "14:35"),
+}
+REGULAR_TIMES = {  # Wed, Thu
+    "1st": ("07:15", "08:08"), "2nd": ("08:15", "09:08"),
+    "3rd": ("09:15", "10:08"), "4th": ("10:15", "11:07"),
+    "5th": ("11:44", "12:35"), "6th": ("12:42", "13:35"),
+    "7th": ("13:42", "14:35"),
+}
+PEP_RALLY_TIMES = {
+    "1st": ("07:15", "08:04"), "2nd": ("08:11", "09:00"),
+    "3rd": ("09:07", "09:56"), "4th": ("10:03", "10:50"),
+    "5th": ("11:27", "12:14"), "6th": ("12:21", "13:08"),
+    "7th": ("13:15", "14:02"),
+}
+# (name, sort_order, times)
+SEED_SCHEDULES = [
+    ("Enrichment", 1, ENRICHMENT_TIMES),
+    ("Regular", 2, REGULAR_TIMES),
+    ("Pep Rally", 3, PEP_RALLY_TIMES),
+]
+
+# Which schedule each weekday defaults to under "auto" mode. Python's
+# weekday(): Monday=0 .. Sunday=6. Blank = no bell schedule that day.
+WEEKDAY_DEFAULT = {
+    0: "Enrichment", 1: "Enrichment", 2: "Regular",
+    3: "Regular", 4: "Enrichment", 5: "", 6: "",
+}
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                 "Friday", "Saturday", "Sunday"]
 
 
 def get_db():
@@ -35,34 +69,140 @@ def get_db():
 
 
 def init_db():
-    """Create tables (idempotent) and seed the default periods once."""
+    """Create tables (idempotent) and seed the bell schedule once."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_db()
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
+
+    # Seed periods.
     if conn.execute("SELECT COUNT(*) FROM periods").fetchone()[0] == 0:
-        conn.executemany(
-            "INSERT INTO periods (name, start_time, end_time, sort_order) "
-            "VALUES (?, ?, ?, ?)",
-            DEFAULT_PERIODS,
-        )
+        for name, order in SEED_PERIODS:
+            # periods.start_time/end_time are a fallback; real times live in
+            # schedule_periods. Use the Regular (or Enrichment) time here.
+            ft = REGULAR_TIMES.get(name) or ENRICHMENT_TIMES.get(name) or ("00:00", "00:00")
+            conn.execute(
+                "INSERT INTO periods (name, start_time, end_time, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (name, ft[0], ft[1], order),
+            )
+
+    # Seed schedules and their per-period times.
+    if conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0:
+        for sname, sorder, times in SEED_SCHEDULES:
+            cur = conn.execute(
+                "INSERT INTO schedules (name, sort_order) VALUES (?, ?)",
+                (sname, sorder),
+            )
+            sid = cur.lastrowid
+            for pname, (start, end) in times.items():
+                prow = conn.execute(
+                    "SELECT id FROM periods WHERE name = ?", (pname,)
+                ).fetchone()
+                if prow:
+                    conn.execute(
+                        "INSERT INTO schedule_periods "
+                        "(schedule_id, period_id, start_time, end_time) "
+                        "VALUES (?, ?, ?, ?)",
+                        (sid, prow["id"], start, end),
+                    )
+
+    # Seed settings (mode + weekday map) if not present.
+    _seed_setting(conn, "schedule_mode", "auto")
+    for wd, sname in WEEKDAY_DEFAULT.items():
+        _seed_setting(conn, f"wd_{wd}", sname)
+
     conn.commit()
     conn.close()
 
 
+def _seed_setting(conn, key, value):
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO NOTHING",
+        (key, value),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+def get_setting(conn, key, default=None):
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(conn, key, value):
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Periods & schedules
+# ---------------------------------------------------------------------------
 def list_periods(conn):
-    return conn.execute("SELECT * FROM periods ORDER BY sort_order, start_time").fetchall()
+    return conn.execute(
+        "SELECT * FROM periods ORDER BY sort_order, name"
+    ).fetchall()
+
+
+def visible_periods(conn):
+    """Periods that appear in scanning/reports. When schedules (enrollments)
+    have been imported, that's the periods students are actually enrolled in
+    — so the period list is driven by the roster/schedule import. Otherwise
+    (whole-school mode) it's every period."""
+    if enrollments_exist(conn):
+        return conn.execute(
+            "SELECT DISTINCT p.* FROM periods p "
+            "JOIN enrollments e ON e.period_id = p.id "
+            "JOIN students s ON s.student_id = e.student_id AND s.active = 1 "
+            "ORDER BY p.sort_order, p.name"
+        ).fetchall()
+    return list_periods(conn)
+
+
+def list_schedules(conn):
+    return conn.execute("SELECT * FROM schedules ORDER BY sort_order, name").fetchall()
+
+
+def schedule_by_name(conn, name):
+    return conn.execute("SELECT * FROM schedules WHERE name = ?", (name,)).fetchone()
+
+
+def active_schedule(conn, now=None):
+    """The schedule in effect right now, honoring the mode setting:
+      'auto'  -> the weekday's mapped schedule
+      'off'   -> None (no bell schedule; periods chosen manually)
+      <name>  -> that schedule is forced (e.g. a Pep Rally day)
+    Returns a schedule row or None."""
+    mode = get_setting(conn, "schedule_mode", "auto")
+    if mode == "off":
+        return None
+    if mode == "auto":
+        now = now or datetime.now()
+        name = get_setting(conn, f"wd_{now.weekday()}", "")
+        return schedule_by_name(conn, name) if name else None
+    return schedule_by_name(conn, mode)
 
 
 def current_period(conn, now=None):
-    """Return the period whose time window contains `now` (default: local now),
-    or None if we are outside all periods."""
+    """The period whose time window (in the active schedule) contains now,
+    or None if the bell schedule is off / we're between periods."""
+    sched = active_schedule(conn, now)
+    if not sched:
+        return None
     now = now or datetime.now()
     hhmm = now.strftime("%H:%M")
-    for p in list_periods(conn):
-        if p["start_time"] <= hhmm <= p["end_time"]:
-            return p
-    return None
+    return conn.execute(
+        "SELECT p.* FROM schedule_periods sp "
+        "JOIN periods p ON p.id = sp.period_id "
+        "WHERE sp.schedule_id = ? AND sp.start_time <= ? AND ? <= sp.end_time "
+        "ORDER BY sp.start_time LIMIT 1",
+        (sched["id"], hhmm, hhmm),
+    ).fetchone()
 
 
 def enrollments_exist(conn):
@@ -72,7 +212,7 @@ def enrollments_exist(conn):
 
 
 def resolve_period(conn, token):
-    """Map a CSV period value ("3", "Period 3", "period 3") to a period id."""
+    """Map a CSV period value ("4", "4th", "Enrichment") to a period id."""
     token = (token or "").strip()
     if not token:
         return None
@@ -84,13 +224,8 @@ def resolve_period(conn, token):
     m = re.search(r"\d+", token)
     if m:
         n = int(m.group())
-        row = conn.execute(
-            "SELECT id FROM periods WHERE sort_order = ?", (n,)
-        ).fetchone()
-        if row:
-            return row["id"]
         for p in list_periods(conn):
-            pm = re.search(r"\d+", p["name"])
-            if pm and int(pm.group()) == n:
+            pm = re.match(r"\s*0*(\d+)", p["name"])
+            if pm and int(pm.group(1)) == n:
                 return p["id"]
     return None

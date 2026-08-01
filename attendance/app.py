@@ -11,6 +11,7 @@ Run:  python app.py            (serves on 0.0.0.0:8000 via waitress)
 
 import csv
 import io
+import os
 import sys
 from datetime import date, datetime, timedelta
 
@@ -80,12 +81,19 @@ def check_in(conn, student_id, period_id, method):
 @app.route("/")
 def kiosk():
     conn = db.get_db()
-    periods = db.list_periods(conn)
+    periods = db.visible_periods(conn)
+    sched = db.active_schedule(conn)
     cur = db.current_period(conn)
-    selected = request.args.get("period_id", type=int) or (cur["id"] if cur else None)
+    selected = request.args.get("period_id", type=int) or (
+        cur["id"] if cur else (periods[0]["id"] if periods else None)
+    )
     conn.close()
     return render_template(
-        "kiosk.html", periods=periods, selected_period=selected, current=cur
+        "kiosk.html",
+        periods=periods,
+        selected_period=selected,
+        current=cur,
+        schedule_name=sched["name"] if sched else None,
     )
 
 
@@ -122,7 +130,7 @@ def scan():
 @app.route("/admin")
 def admin():
     conn = db.get_db()
-    periods = db.list_periods(conn)
+    periods = db.visible_periods(conn)
     cur = db.current_period(conn)
     day = request.args.get("day") or date.today().isoformat()
     period_id = request.args.get("period_id", type=int) or (cur["id"] if cur else (periods[0]["id"] if periods else None))
@@ -404,13 +412,25 @@ def import_enrollment_rows(reader):
         ptoken = row.get("period") or row.get("period_id")
         if not sid or not ptoken:
             continue
-        pid = db.resolve_period(conn, ptoken)
         known = conn.execute(
             "SELECT 1 FROM students WHERE student_id = ?", (sid,)
         ).fetchone()
-        if pid is None or not known:
+        if not known:
             skipped += 1
             continue
+        # Periods are driven by the import: create one on the fly if this
+        # token doesn't match an existing period.
+        pid = db.resolve_period(conn, ptoken)
+        if pid is None:
+            order = (conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM periods"
+            ).fetchone()[0])
+            cur = conn.execute(
+                "INSERT INTO periods (name, start_time, end_time, sort_order) "
+                "VALUES (?, '00:00', '00:00', ?)",
+                (ptoken.strip().title(), order),
+            )
+            pid = cur.lastrowid
         conn.execute(
             """
             INSERT INTO enrollments (student_id, period_id, section, room)
@@ -428,6 +448,87 @@ def import_enrollment_rows(reader):
 
 
 # ---------------------------------------------------------------------------
+# Settings (bell schedule)
+# ---------------------------------------------------------------------------
+@app.route("/settings")
+def settings():
+    conn = db.get_db()
+    schedules = db.list_schedules(conn)
+    mode = db.get_setting(conn, "schedule_mode", "auto")
+    weekday_map = {wd: db.get_setting(conn, f"wd_{wd}", "") for wd in range(7)}
+    # Times per schedule, for the editor.
+    sched_times = {}
+    for s in schedules:
+        sched_times[s["id"]] = conn.execute(
+            "SELECT sp.period_id, sp.start_time, sp.end_time, p.name AS period_name "
+            "FROM schedule_periods sp JOIN periods p ON p.id = sp.period_id "
+            "WHERE sp.schedule_id = ? ORDER BY p.sort_order",
+            (s["id"],),
+        ).fetchall()
+    active = db.active_schedule(conn)
+    current = db.current_period(conn)
+    conn.close()
+    return render_template(
+        "settings.html",
+        schedules=schedules,
+        mode=mode,
+        weekday_map=weekday_map,
+        weekday_names=db.WEEKDAY_NAMES,
+        sched_times=sched_times,
+        active_name=active["name"] if active else None,
+        current_name=current["name"] if current else None,
+    )
+
+
+@app.post("/settings/mode")
+def settings_mode():
+    mode = request.form.get("schedule_mode", "auto")
+    conn = db.get_db()
+    db.set_setting(conn, "schedule_mode", mode)
+    conn.commit()
+    conn.close()
+    labels = {"auto": "Auto (by weekday)", "off": "Off (manual period)"}
+    flash(f"Today's schedule set to: {labels.get(mode, mode)}.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/weekdays")
+def settings_weekdays():
+    conn = db.get_db()
+    for wd in range(7):
+        db.set_setting(conn, f"wd_{wd}", request.form.get(f"wd_{wd}", ""))
+    conn.commit()
+    conn.close()
+    flash("Weekday schedule map saved.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/times")
+def settings_times():
+    """Save edited period times for one schedule."""
+    schedule_id = request.form.get("schedule_id", type=int)
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT period_id FROM schedule_periods WHERE schedule_id = ?",
+        (schedule_id,),
+    ).fetchall()
+    for r in rows:
+        pid = r["period_id"]
+        start = request.form.get(f"start_{pid}", "").strip()
+        end = request.form.get(f"end_{pid}", "").strip()
+        if start and end:
+            conn.execute(
+                "UPDATE schedule_periods SET start_time = ?, end_time = ? "
+                "WHERE schedule_id = ? AND period_id = ?",
+                (start, end, schedule_id, pid),
+            )
+    conn.commit()
+    conn.close()
+    flash("Schedule times updated.")
+    return redirect(url_for("settings"))
+
+
+# ---------------------------------------------------------------------------
 # Reports & history
 # ---------------------------------------------------------------------------
 @app.route("/reports")
@@ -435,7 +536,7 @@ def reports():
     """Per-period present/absent summary for a chosen day."""
     day = request.args.get("day") or date.today().isoformat()
     conn = db.get_db()
-    periods = db.list_periods(conn)
+    periods = db.visible_periods(conn)
     per_period = db.enrollments_exist(conn)
     summary = []
     for p in periods:
@@ -609,7 +710,18 @@ def _cli_import_schedule(path):
     print(f"Imported / updated {added} enrollments from {path} (skipped {skipped})")
 
 
+def _cli_reset():
+    if os.path.exists(db.DB_PATH):
+        os.remove(db.DB_PATH)
+    db.init_db()
+    print("Database reset and re-seeded with the Jordan B-Lunch schedule.")
+    print("Re-import your roster and class schedule next.")
+
+
 if __name__ == "__main__":
+    if len(sys.argv) >= 2 and sys.argv[1] == "reset":
+        _cli_reset()
+        sys.exit(0)
     db.init_db()
     if len(sys.argv) >= 3 and sys.argv[1] == "import":
         _cli_import(sys.argv[2])

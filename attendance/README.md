@@ -69,12 +69,44 @@ student_id,name,grade
 
 `grade` is optional. Re-importing updates existing students by ID.
 
-## Class periods
+## Bell schedule (Settings page)
 
-A default bell schedule (Period 1–7) is seeded on first run. The kiosk
-picks the current period automatically from the computer's clock, and
-staff can view any period/date. To change the schedule, edit
-`DEFAULT_PERIODS` in `db.py` before first run, or edit the `periods` table.
+The app ships pre-loaded with the Jordan High School **B-Lunch** bell
+schedule as three named day-schedules, each with its own period times:
+
+- **Enrichment** — Monday, Tuesday, Friday
+- **Regular** — Wednesday, Thursday
+- **Pep Rally** — special days
+
+The kiosk figures out the current period automatically from the computer's
+clock **and the day of week** — it uses the Enrichment times on Mon/Tue/Fri
+and the Regular times on Wed/Thu. All of this is managed on the
+**Settings** page (`/settings`):
+
+- **Today's schedule / mode:**
+  - **Auto (by weekday)** — normal behavior, follows the weekday map.
+  - **Force a schedule** — pin a specific one for a special day (e.g. Pep
+    Rally).
+  - **Off** — turns off automatic period detection so staff pick the
+    period on the kiosk. Use this for **non-traditional days**; remember to
+    switch back to Auto afterward.
+- **Weekday map** — which schedule each day of the week uses in Auto mode.
+- **Edit schedule times** — adjust any period's start/end time in any
+  schedule, right in the browser (24-hour, e.g. 13:48 = 1:48 PM).
+
+Periods themselves are **driven by your import**: whatever periods appear
+in the class-schedule CSV are the ones that show up in scanning and
+reports (see below). The seeded bell times cover 1st–7th plus Enrichment.
+
+### Starting over with a clean schedule
+
+To wipe the database and re-seed the bell schedule from scratch:
+
+```bash
+python app.py reset
+```
+
+Then re-import your roster and class schedule.
 
 ## Per-period class rosters (schedules)
 
@@ -118,6 +150,7 @@ range (so weekends/holidays with no scans don't count against anyone).
 
 **Included:** valid-ID check, attendance logging (who + when), per-period
 who's-in / who's-out live view, **per-period class rosters (schedules)**,
+**day-of-week bell schedules with auto-switching + on/off/force modes**,
 manual forgot-ID check-in, mistake undo, **daily summary + per-student
 history + absence exports**, roster/schedule CSV import/export, and
 multi-station use over the network.
