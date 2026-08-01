@@ -52,11 +52,17 @@
     }
     periodSel.addEventListener('change', () => {
       localStorage.setItem('manualPeriod', periodSel.value);
+      refocus();  // hand focus back to the scan box so scanning resumes
     });
 
-    // Keep focus on the input so the scanner always lands here.
+    // Keep focus on the input so the scanner always lands here — but leave
+    // the top bar alone, otherwise clicking the period dropdown refocuses
+    // the scan box and the dropdown closes the instant it opens.
     function refocus() { input.focus(); }
-    document.addEventListener('click', refocus);
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.topnav')) return;
+      refocus();
+    });
     window.addEventListener('load', refocus);
 
     let resetTimer = null;
