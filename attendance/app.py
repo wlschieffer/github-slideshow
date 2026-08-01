@@ -12,6 +12,7 @@ Run:  python app.py            (serves on 0.0.0.0:8000 via waitress)
 import csv
 import io
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -357,7 +358,8 @@ def _roster_context(conn):
         ).fetchall(),
         "canvas_base_url": db.get_setting(conn, "canvas_base_url", ""),
         "canvas_id_field": db.get_setting(conn, "canvas_id_field", "sis_user_id"),
-        "canvas_courses": db.get_setting(conn, "canvas_courses", ""),
+        "canvas_course_ids": db.get_setting(conn, "canvas_course_ids", ""),
+        "canvas_section_map": db.get_setting(conn, "canvas_section_map", ""),
         "id_fields": canvas.ID_FIELDS,
     }
 
@@ -370,8 +372,13 @@ def roster():
     return render_template("roster.html", **ctx)
 
 
-def _parse_course_lines(raw):
-    """Parse the 'course_id, period' textarea into [(course_id, period), ...]."""
+def _parse_ids(raw):
+    """Parse a free-form list of IDs (commas, spaces, or newlines)."""
+    return [tok for tok in re.split(r"[\s,]+", raw or "") if tok.strip()]
+
+
+def _parse_section_lines(raw):
+    """Parse the 'section_id, period' textarea into [(section_id, period), ...]."""
     pairs = []
     for line in (raw or "").splitlines():
         parts = [p.strip() for p in line.replace("\t", ",").split(",")]
@@ -382,32 +389,64 @@ def _parse_course_lines(raw):
 
 @app.post("/roster/canvas")
 def roster_canvas():
-    """Preview or import a roster from Canvas. Each course maps to a period."""
+    """Canvas roster import. Three actions:
+      sections -> list a course's sections so they can be mapped to periods
+      preview  -> fetch mapped sections' students, show a sample (no writes)
+      import   -> write students + enrollments (section -> period)
+    """
     base_url = request.form.get("base_url", "").strip()
     token = request.form.get("token", "").strip()
     id_field = request.form.get("id_field", "sis_user_id")
-    courses_raw = request.form.get("courses", "")
-    action = request.form.get("action", "preview")
+    course_ids_raw = request.form.get("course_ids", "")
+    section_map_raw = request.form.get("section_map", "")
+    action = request.form.get("action", "sections")
 
     # Remember the non-secret preferences (never the token).
     conn = db.get_db()
     db.set_setting(conn, "canvas_base_url", base_url)
     db.set_setting(conn, "canvas_id_field", id_field)
-    db.set_setting(conn, "canvas_courses", courses_raw)
+    db.set_setting(conn, "canvas_course_ids", course_ids_raw)
+    db.set_setting(conn, "canvas_section_map", section_map_raw)
     conn.commit()
     conn.close()
 
-    course_map = _parse_course_lines(courses_raw)
-    if not base_url or not token or not course_map:
-        flash("Enter the Canvas site URL, an API token, and at least one "
-              "'course_id, period' line.")
+    if not base_url or not token:
+        flash("Enter the Canvas site URL and an API token.")
         return redirect(url_for("roster"))
 
-    # Fetch every listed course up front (shared by preview and import).
     try:
+        if action == "sections":
+            ids = _parse_ids(course_ids_raw)
+            if not ids:
+                flash("Enter at least one course ID to list its sections.")
+                return redirect(url_for("roster"))
+            sections = []
+            for cid in ids:
+                for s in canvas.fetch_sections(base_url, token, cid):
+                    sections.append({
+                        "course": cid,
+                        "id": s.get("id"),
+                        "name": s.get("name"),
+                        "count": s.get("total_students"),
+                    })
+            suggested = "\n".join(f"{s['id']}, " for s in sections)
+            conn = db.get_db()
+            ctx = _roster_context(conn)
+            conn.close()
+            return render_template(
+                "roster.html", sections=sections, suggested_map=suggested,
+                canvas_token=token, **ctx,
+            )
+
+        # preview / import both need the section -> period map.
+        smap = _parse_section_lines(section_map_raw)
+        if not smap:
+            flash("Add at least one 'section_id, period' line "
+                  "(use 'List sections' to find the IDs).")
+            return redirect(url_for("roster"))
         fetched = [
-            (cid, period, canvas.fetch_course_students(base_url, token, cid))
-            for cid, period in course_map
+            (sid, period, canvas.fetch_section_students(base_url, token, sid))
+            for sid, period in smap
         ]
     except canvas.CanvasError as e:
         flash(str(e))
@@ -422,7 +461,6 @@ def roster_canvas():
         flash(msg)
         return redirect(url_for("roster"))
 
-    # Preview: show a sample with every ID field so the user can confirm.
     preview = _canvas_preview(fetched, id_field)
     conn = db.get_db()
     ctx = _roster_context(conn)
@@ -432,15 +470,15 @@ def roster_canvas():
 
 def _canvas_preview(fetched, id_field):
     rows, counts, missing, total = [], [], 0, 0
-    for cid, period, students in fetched:
-        counts.append({"course": cid, "period": period, "n": len(students)})
+    for sid, period, students in fetched:
+        counts.append({"section": sid, "period": period, "n": len(students)})
         for s in students:
             total += 1
             if not canvas.extract_id(s, id_field):
                 missing += 1
         for s in students[:5]:
             rows.append({
-                "course": cid, "period": period,
+                "section": sid, "period": period,
                 "name": canvas.student_name(s),
                 "chosen": canvas.extract_id(s, id_field),
                 "sis": s.get("sis_user_id"),
@@ -456,7 +494,7 @@ def _canvas_preview(fetched, id_field):
 def _canvas_import(fetched, id_field):
     conn = db.get_db()
     seen_students, n_enroll, skipped = set(), 0, 0
-    for cid, period, students in fetched:
+    for sid, period, students in fetched:
         pid = db.resolve_period(conn, period)
         if pid is None:
             order = conn.execute(
@@ -468,22 +506,22 @@ def _canvas_import(fetched, id_field):
                 (period.strip().title(), order),
             ).lastrowid
         for s in students:
-            sid = canvas.extract_id(s, id_field)
-            if not sid:
+            student_id = canvas.extract_id(s, id_field)
+            if not student_id:
                 skipped += 1
                 continue
             conn.execute(
                 "INSERT INTO students (student_id, name, grade, active) "
                 "VALUES (?, ?, NULL, 1) "
                 "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, active = 1",
-                (sid, canvas.student_name(s)),
+                (student_id, canvas.student_name(s)),
             )
-            seen_students.add(sid)
+            seen_students.add(student_id)
             conn.execute(
                 "INSERT INTO enrollments (student_id, period_id, section, room) "
                 "VALUES (?, ?, ?, NULL) "
                 "ON CONFLICT(student_id, period_id) DO UPDATE SET section = excluded.section",
-                (sid, pid, f"Canvas {cid}"),
+                (student_id, pid, f"Canvas section {sid}"),
             )
             n_enroll += 1
     conn.commit()

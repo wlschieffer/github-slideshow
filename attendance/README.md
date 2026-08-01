@@ -132,27 +132,30 @@ student_id,period,section,room
 
 ## Import from Canvas LMS
 
-The **Roster** page can pull students straight from Canvas instead of
-exporting/trimming a gradebook CSV. **Each course becomes a period.**
+The **Roster** page can pull students straight from Canvas (reading the
+**People** list / enrollments — not the gradebook, so an inactive gradebook
+doesn't matter). Because cross-listed courses hold a **section per period**,
+you map **sections** to periods.
 
 1. In Canvas: Account → Settings → **+ New Access Token**, and copy it.
-2. On the Roster page, fill in:
-   - **Canvas site URL** — e.g. `https://yourschool.instructure.com`
-   - **API token** — pasted each time; it is never written to disk.
-   - **Courses → period** — one per line, `course_id, period`
-     (the course ID is the number in the course's Canvas URL).
-   - **ID to use for scanning** — which Canvas identifier matches your
-     badges (default **SIS ID**).
-3. Click **Preview**. It shows a sample of students with *all* their ID
+2. On the Roster page, enter the **Canvas site URL**, paste the **API token**
+   (never written to disk), and enter your **Course IDs** (the number in each
+   course's Canvas URL).
+3. Click **List sections** — it shows every section's ID, name, and student
+   count.
+4. Fill in **Sections → period** (one `section_id, period` per line) and pick
+   the **ID to use for scanning** (default **SIS ID**).
+5. Click **Preview**. It shows a sample of students with *all* their ID
    fields side by side so you can confirm the highlighted column matches a
-   real badge — nothing is imported yet. If the chosen column is blank for
-   students, your token may lack permission to read it; pick a different ID
-   field (Login ID, Canvas ID) that is populated.
-4. Click **Import** (or "Looks right — import these" under the preview).
+   real badge — nothing is imported yet. If that column is blank, your token
+   may lack permission to read it; pick a different ID field (Login ID,
+   Canvas ID) that is populated.
+6. Click **Import** (or "Looks right — import these" under the preview).
 
-Re-running updates existing students and enrollments, so it's safe to run
-again when your Canvas rosters change. Students whose chosen ID field is
-empty are skipped and reported.
+Pending/invited enrollments are included, so courses that haven't started or
+aren't published yet still work. Re-running updates existing students and
+enrollments, so it's safe to run again when your Canvas rosters change.
+Students whose chosen ID field is empty are skipped and reported.
 
 Students who scan into a period they aren't enrolled in still check in
 fine — they appear in an "Also checked in — not on this period's roster"

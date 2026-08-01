@@ -36,21 +36,50 @@
     <p class="muted">Importing updates existing students by ID and adds new ones.
        Export your current Excel roster to CSV with these column headers to load it in.</p>
 
-    <!-- Canvas LMS import -->
+    <!-- Canvas LMS import (cross-listed: each SECTION maps to a period) -->
     <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>
+    <p class="muted" style="max-width:660px">Because your courses are cross-listed
+       with a section per period, you map <strong>sections</strong> (not whole
+       courses) to periods. Enter your course IDs and click <strong>List
+       sections</strong> to find the section IDs, fill in a period for each, then
+       Preview and Import. Pending/not-yet-active enrollments are included.</p>
     <form method="post" action="{{ url_for('roster_canvas') }}"
-          style="display:flex; flex-direction:column; gap:.75rem; max-width:640px">
+          style="display:flex; flex-direction:column; gap:.75rem; max-width:660px">
       <label>Canvas site URL
         <input type="url" name="base_url" value="{{ canvas_base_url }}"
                placeholder="https://yourschool.instructure.com">
       </label>
       <label>API token <span class="muted">(paste each time — never saved)</span>
         <input type="password" name="token" autocomplete="off"
-               placeholder="Canvas access token">
+               value="{{ canvas_token or '' }}" placeholder="Canvas access token">
       </label>
-      <label>Courses → period <span class="muted">(one per line: <code>course_id, period</code>)</span>
-        <textarea name="courses" rows="4"
-                  placeholder="1234567, 1&#10;1234568, 4&#10;1234569, 6">{{ canvas_courses }}</textarea>
+      <label>Course IDs <span class="muted">(comma- or line-separated — the number in each course's URL)</span>
+        <textarea name="course_ids" rows="2"
+                  placeholder="1234567, 1234568">{{ canvas_course_ids }}</textarea>
+      </label>
+      <div>
+        <button type="submit" name="action" value="sections">List sections</button>
+      </div>
+
+      {% if sections is defined and sections %}
+      <div class="flash" style="background:#1e3a8a; border-color:#3b82f6">
+        Found {{ sections|length }} section(s). Copy the IDs into the map below and
+        set each period.
+      </div>
+      <table>
+        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Students</th></tr></thead>
+        <tbody>
+          {% for s in sections %}
+          <tr><td class="muted">{{ s.course }}</td><td><strong>{{ s.id }}</strong></td>
+              <td>{{ s.name }}</td><td class="muted">{{ s.count if s.count is not none else '—' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      <label>Sections → period <span class="muted">(one per line: <code>section_id, period</code>)</span>
+        <textarea name="section_map" rows="4"
+                  placeholder="8901234, 1&#10;8901235, 4&#10;8901236, 6">{{ canvas_section_map or suggested_map or '' }}</textarea>
       </label>
       <label>ID to use for scanning
         <select name="id_field">
@@ -64,30 +93,29 @@
         <button type="submit" name="action" value="import" class="ghost">Import now</button>
       </div>
     </form>
-    <p class="muted">Each course becomes a period. <strong>Preview first</strong> to
-       confirm the ID column matches your badges, then import. Your token is never
-       written to disk.</p>
+    <p class="muted"><strong>Preview first</strong> to confirm the ID column matches
+       your badges, then import. Your token is never written to disk.</p>
 
     {% if preview %}
     <div class="flash" style="background:#064e3b; border-color:#16a34a">
       <strong>Preview only — nothing imported yet.</strong>
-      Found {{ preview.total }} students across {{ preview.counts|length }} course(s)
-      ({% for c in preview.counts %}{{ c.course }}→P{{ c.period }}: {{ c.n }}{{ ', ' if not loop.last }}{% endfor %}).
+      Found {{ preview.total }} students across {{ preview.counts|length }} section(s)
+      ({% for c in preview.counts %}{{ c.section }}→P{{ c.period }}: {{ c.n }}{{ ', ' if not loop.last }}{% endfor %}).
       {% if preview.missing %}
         <br><strong>{{ preview.missing }}</strong> student(s) have no
-        {{ preview.id_label }} — those would be skipped. Try a different "ID to use"
-        if the highlighted column is empty.
+        {{ preview.id_label }} — those would be skipped. If that column is blank,
+        pick a different "ID to use" that is populated below.
       {% endif %}
     </div>
     <table>
       <thead><tr>
-        <th>Course</th><th>Period</th><th>Name</th>
+        <th>Section</th><th>Period</th><th>Name</th>
         <th>{{ preview.id_label }} (used)</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th>
       </tr></thead>
       <tbody>
         {% for r in preview.rows %}
         <tr>
-          <td class="muted">{{ r.course }}</td>
+          <td class="muted">{{ r.section }}</td>
           <td>{{ r.period }}</td>
           <td>{{ r.name }}</td>
           <td>{% if r.chosen %}<strong>{{ r.chosen }}</strong>{% else %}<span class="pill absent">missing</span>{% endif %}</td>
@@ -101,7 +129,7 @@
     <form method="post" action="{{ url_for('roster_canvas') }}" style="margin:.75rem 0 0">
       <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
       <input type="hidden" name="token" value="{{ canvas_token }}">
-      <input type="hidden" name="courses" value="{{ canvas_courses }}">
+      <input type="hidden" name="section_map" value="{{ canvas_section_map }}">
       <input type="hidden" name="id_field" value="{{ canvas_id_field }}">
       <button type="submit" name="action" value="import">Looks right — import these</button>
     </form>

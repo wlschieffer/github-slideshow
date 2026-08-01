@@ -1,4 +1,5 @@
-"""Minimal Canvas LMS API client — just enough to pull a course roster.
+"""Minimal Canvas LMS API client — enough to list sections and pull their
+student rosters (from People / enrollments, not the gradebook).
 
 Canvas exposes several identifiers per student; which one matches your
 scannable badges depends on your district's setup, so the caller picks the
@@ -15,6 +16,10 @@ ID_FIELDS = {
     "id": "Canvas ID",
 }
 
+# Enrollment states we treat as "on the roster". Pending/invited cover
+# students in unpublished courses or before a term has started.
+STUDENT_STATES = ["active", "invited", "creation_pending"]
+
 
 class CanvasError(Exception):
     """Raised with a friendly, user-facing message when a call fails."""
@@ -24,37 +29,64 @@ def _headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def fetch_course_students(base_url, token, course_id, timeout=20):
-    """Return the list of student user objects for a course (all pages)."""
-    base = base_url.rstrip("/")
-    url = f"{base}/api/v1/courses/{course_id}/users"
-    params = {"enrollment_type[]": "student", "per_page": 100}
-    students = []
+def _raise_for_status(r):
+    if r.status_code == 401:
+        raise CanvasError("Canvas rejected the token (401). Double-check the access token.")
+    if r.status_code == 403:
+        raise CanvasError("Canvas denied access (403). The token may lack permission here.")
+    if r.status_code == 404:
+        raise CanvasError("Not found (404). Check the course/section ID and site URL.")
+    if r.status_code != 200:
+        raise CanvasError(f"Canvas returned HTTP {r.status_code}.")
+
+
+def _paginate(url, token, params, timeout=20):
+    """GET a paginated Canvas list endpoint, following Link: rel=next."""
+    out = []
     try:
         while url:
             r = requests.get(url, headers=_headers(token), params=params, timeout=timeout)
-            params = None  # follow-up pages already carry query params in the URL
-            if r.status_code == 401:
-                raise CanvasError(
-                    "Canvas rejected the token (401). Double-check the access token."
-                )
-            if r.status_code == 403:
-                raise CanvasError(
-                    "Canvas denied access (403). The token may lack permission for this course."
-                )
-            if r.status_code == 404:
-                raise CanvasError(
-                    f"Course {course_id} not found (404). Check the course ID and site URL."
-                )
-            if r.status_code != 200:
-                raise CanvasError(f"Canvas returned HTTP {r.status_code}.")
-            batch = r.json()
-            if not isinstance(batch, list):
-                raise CanvasError("Unexpected response from Canvas (not a user list).")
-            students.extend(batch)
+            params = None  # follow-up pages already carry the query in the URL
+            _raise_for_status(r)
+            data = r.json()
+            if not isinstance(data, list):
+                raise CanvasError("Unexpected response from Canvas (expected a list).")
+            out.extend(data)
             url = r.links.get("next", {}).get("url")
     except requests.RequestException as e:
         raise CanvasError(f"Could not reach Canvas: {e}")
+    return out
+
+
+def fetch_sections(base_url, token, course_id, timeout=20):
+    """List a course's sections, with a student count when available."""
+    base = base_url.rstrip("/")
+    url = f"{base}/api/v1/courses/{course_id}/sections"
+    return _paginate(
+        url, token, {"per_page": 100, "include[]": "total_students"}, timeout
+    )
+
+
+def fetch_section_students(base_url, token, section_id, timeout=20):
+    """Return student user objects for a section, including pending/invited
+    enrollments (so unpublished or not-yet-started courses still work)."""
+    base = base_url.rstrip("/")
+    url = f"{base}/api/v1/sections/{section_id}/enrollments"
+    params = {
+        "type[]": "StudentEnrollment",
+        "state[]": STUDENT_STATES,
+        "include[]": "user",
+        "per_page": 100,
+    }
+    enrollments = _paginate(url, token, params, timeout)
+    students = []
+    for e in enrollments:
+        user = dict(e.get("user") or {})
+        # Some deployments expose SIS/login on the enrollment, not the user.
+        for key in ("sis_user_id", "login_id", "integration_id"):
+            if not user.get(key) and e.get(key):
+                user[key] = e[key]
+        students.append(user)
     return students
 
 
