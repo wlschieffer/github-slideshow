@@ -85,7 +85,6 @@
       const body = new URLSearchParams({ student_id: value, period_id: periodSel.value });
       const res = await fetch('{{ url_for("scan") }}', { method: 'POST', body });
       const d = await res.json();
-      const detail = d.grade ? (d.grade + ' · ' + d.message) : d.message;
       if (d.status === 'ok') {
         show('ok', '✓ Welcome', d.name, d.time ? ('Checked in at ' + d.time) : '');
       } else if (d.status === 'duplicate') {

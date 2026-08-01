@@ -67,10 +67,10 @@ Export your Excel roster to a CSV with these column headers and import it
 on the **Roster** page (or with the `import` command above):
 
 ```
-student_id,name,grade
+student_id,name
 ```
 
-`grade` is optional. Re-importing updates existing students by ID.
+Re-importing updates existing students by ID.
 
 ## Bell schedule (Settings page)
 

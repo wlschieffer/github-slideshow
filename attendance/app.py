@@ -331,10 +331,10 @@ def admin_export():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["student_id", "name", "grade", "status", "checked_in_at", "method"])
+    w.writerow(["student_id", "name", "status", "checked_in_at", "method"])
     for r in rows:
         w.writerow([
-            r["student_id"], r["name"], r["grade"] or "",
+            r["student_id"], r["name"],
             "Present" if r["scanned_at"] else "Absent",
             r["scanned_at"] or "", r["method"] or "",
         ])
@@ -392,17 +392,15 @@ def roster_student_add():
     won't hand over. Optionally enroll them in space-separated periods."""
     student_id = request.form.get("student_id", "").strip()
     name = request.form.get("name", "").strip()
-    grade = request.form.get("grade", "").strip() or None
     periods_raw = request.form.get("periods", "")
     if not student_id or not name:
         flash("Enter at least an ID and a name to add a student.")
         return redirect(url_for("roster"))
     conn = db.get_db()
     conn.execute(
-        "INSERT INTO students (student_id, name, grade, active) VALUES (?, ?, ?, 1) "
-        "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, "
-        "grade = excluded.grade, active = 1",
-        (student_id, name, grade),
+        "INSERT INTO students (student_id, name, active) VALUES (?, ?, 1) "
+        "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, active = 1",
+        (student_id, name),
     )
     added = []
     for tok in _parse_ids(periods_raw):
@@ -707,9 +705,9 @@ def roster_export():
     conn.close()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["student_id", "name", "grade", "active"])
+    w.writerow(["student_id", "name", "active"])
     for r in rows:
-        w.writerow([r["student_id"], r["name"], r["grade"] or "", r["active"]])
+        w.writerow([r["student_id"], r["name"], r["active"]])
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
@@ -1092,19 +1090,19 @@ def absences_export():
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["day", "period", "student_id", "name", "grade"])
+    w.writerow(["day", "period", "student_id", "name"])
     for day in school_days:
         for p in periods:
             if per_period:
                 expected = conn.execute(
-                    "SELECT s.student_id, s.name, s.grade FROM enrollments e "
+                    "SELECT s.student_id, s.name FROM enrollments e "
                     "JOIN students s ON s.student_id = e.student_id AND s.active = 1 "
                     "WHERE e.period_id = ?",
                     (p["id"],),
                 ).fetchall()
             else:
                 expected = conn.execute(
-                    "SELECT student_id, name, grade FROM students WHERE active = 1"
+                    "SELECT student_id, name FROM students WHERE active = 1"
                 ).fetchall()
             for s in expected:
                 present = conn.execute(
@@ -1114,7 +1112,7 @@ def absences_export():
                 ).fetchone()
                 if not present:
                     w.writerow(
-                        [day, p["name"], s["student_id"], s["name"], s["grade"] or ""]
+                        [day, p["name"], s["student_id"], s["name"]]
                     )
     conn.close()
     fname = f"absences_{start}_to_{end}.csv"

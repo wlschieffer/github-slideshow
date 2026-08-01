@@ -52,7 +52,7 @@
     {% else %}
     <table>
       <thead>
-        <tr><th>Student</th><th>ID</th><th>Grade</th><th>Status</th><th>Time</th><th></th></tr>
+        <tr><th>Student</th><th>ID</th><th>Status</th><th>Time</th><th></th></tr>
       </thead>
       <tbody>
         {% for r in rows %}
@@ -62,7 +62,6 @@
             {% if r.section %}<div class="muted" style="font-size:.8rem">{{ r.section }}{% if r.room %} · Rm {{ r.room }}{% endif %}</div>{% endif %}
           </td>
           <td class="muted">{{ r.student_id }}</td>
-          <td>{{ r.grade or '' }}</td>
           <td>
             {% if r.scanned_at %}
               <span class="pill present">Present</span>
@@ -106,13 +105,12 @@
       Also checked in — not on this period's roster
     </h1>
     <table>
-      <thead><tr><th>Student</th><th>ID</th><th>Grade</th><th>Time</th><th></th></tr></thead>
+      <thead><tr><th>Student</th><th>ID</th><th>Time</th><th></th></tr></thead>
       <tbody>
         {% for r in extras %}
         <tr>
           <td><a href="{{ url_for('student_history', student_id=r.student_id) }}">{{ r.name }}</a></td>
           <td class="muted">{{ r.student_id }}</td>
-          <td>{{ r.grade or '' }}</td>
           <td class="muted">{{ r.scanned_at.split('T')[1][:5] if r.scanned_at else '' }}</td>
           <td>
             <form class="inline" method="post" action="{{ url_for('admin_unmark') }}">

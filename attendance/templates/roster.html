@@ -64,7 +64,7 @@
       <button type="submit">Import</button>
       <a class="btn" href="{{ url_for('roster_export') }}">Export CSV</a>
     </form>
-    <p class="muted">Columns: <code>student_id, name, grade</code> (grade optional).
+    <p class="muted">Columns: <code>student_id, name</code>.
        Importing updates existing students by ID and adds new ones — export your
        current Excel roster to CSV with these headers to load it in.</p>
 
@@ -191,9 +191,6 @@
       <label>Name
         <input type="text" name="name" id="add_name" autocomplete="off" required style="min-width:14rem">
       </label>
-      <label>Grade
-        <input type="text" name="grade" id="add_grade" style="width:5rem">
-      </label>
       <label>Periods <span class="muted">(e.g. 1 2 4)</span>
         <input type="text" name="periods" id="add_periods" placeholder="1 2 4">
       </label>
@@ -215,13 +212,12 @@
 
     {% if students %}
     <table>
-      <thead><tr><th>ID</th><th>Name</th><th>Grade</th><th>Periods</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Periods</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% for s in students %}
         <tr class="{{ '' if s.active else 'muted' }}">
           <td class="muted">{{ s.student_id }}</td>
           <td>{{ s.name }}</td>
-          <td>{{ s.grade or '' }}</td>
           <td class="muted" style="font-size:.85rem; line-height:1.4">
             {% for p in enrolled_periods.get(s.student_id) or [] %}{{ p }}{% if not loop.last %}<br>{% endif %}{% endfor %}
           </td>

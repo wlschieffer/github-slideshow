@@ -1,11 +1,11 @@
-student_id,name,grade
-1001,Ava Martinez,9
-1002,Liam Johnson,9
-1003,Sophia Chen,10
-1004,Noah Patel,10
-1005,Emma Williams,11
-1006,Oliver Brown,11
-1007,Mia Garcia,12
-1008,Lucas Kim,12
-1009,Isabella Nguyen,9
-1010,Ethan Davis,10
+student_id,name
+1001,Ava Martinez
+1002,Liam Johnson
+1003,Sophia Chen
+1004,Noah Patel
+1005,Emma Williams
+1006,Oliver Brown
+1007,Mia Garcia
+1008,Lucas Kim
+1009,Isabella Nguyen
+1010,Ethan Davis
