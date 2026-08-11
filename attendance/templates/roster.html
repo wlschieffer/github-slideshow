@@ -34,25 +34,32 @@
         <em>different</em> ID column, re-import with that "ID to use for scanning".{% endif %}
     </div>
     {% if import_result.skipped %}
-    <table>
-      <thead><tr><th>Section</th><th>Name</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th><th></th></tr></thead>
-      <tbody>
-        {% for r in import_result.skipped %}
-        <tr>
-          <td class="muted">{{ r.section }}</td>
-          <td>{{ r.name }}</td>
-          <td>{% if r.sis %}{{ r.sis }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
-          <td>{% if r.login %}{{ r.login }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
-          <td class="muted">{{ r.canvas_id }}</td>
-          <td><button type="button" class="ghost add-manual"
-                      data-name="{{ r.name }}" data-period="{{ r.period }}">Add manually</button></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="muted">For a skipped student, look up their SIS/badge number on the
-       Canvas <em>People</em> page, click <strong>Add manually</strong> to pre-fill
-       their name and period below, type the ID, and add.</p>
+    <form method="post" action="{{ url_for('roster_bulk_add') }}">
+      <input type="hidden" name="row_count" value="{{ import_result.skipped|length }}">
+      <table>
+        <thead><tr><th>Section</th><th>Name</th><th>SIS</th><th>Login</th><th>Canvas</th><th>Enter badge/SIS to add</th></tr></thead>
+        <tbody>
+          {% for r in import_result.skipped %}
+          <tr>
+            <td class="muted">{{ r.section }}</td>
+            <td>{{ r.name }}<input type="hidden" name="bulk_name_{{ loop.index0 }}" value="{{ r.name }}"></td>
+            <td>{% if r.sis %}{{ r.sis }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+            <td>{% if r.login %}{{ r.login }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+            <td class="muted">{{ r.canvas_id }}</td>
+            <td>
+              <input type="hidden" name="bulk_period_{{ loop.index0 }}" value="{{ r.period }}">
+              <input type="text" name="bulk_id_{{ loop.index0 }}" placeholder="badge / SIS" style="width:9rem">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" style="margin-top:.75rem">Add all entered IDs</button>
+    </form>
+    <p class="muted">Look up each student's SIS/badge number on the Canvas
+       <em>People</em> page, type it in the last column, and click
+       <strong>Add all entered IDs</strong> — the whole list at once, with names and
+       periods already filled in. Rows you leave blank are ignored.</p>
     {% endif %}
     {% endif %}
 
@@ -200,6 +207,22 @@
        SIS/badge number on the Canvas People page and type it here). Re-importing
        from Canvas later won't remove manually-added students.</p>
 
+    <h1 style="font-size:1.15rem; margin-top:1.25rem">Bulk add students</h1>
+    <form method="post" action="{{ url_for('roster_bulk_add') }}" class="controls"
+          style="flex-wrap:wrap; align-items:flex-start">
+      <label style="flex:1 1 340px">Paste one per line — <code>ID</code> or <code>ID, Name</code>
+        <textarea name="bulk_text" rows="4"
+                  placeholder="123456, Martinez, Ava&#10;123457, Johnson, Liam&#10;123458"></textarea>
+      </label>
+      <label>Periods <span class="muted">(applied to all)</span>
+        <input type="text" name="bulk_periods" placeholder="e.g. 2" style="width:6rem">
+      </label>
+      <button type="submit">Bulk add</button>
+    </form>
+    <p class="muted">Everything after the first comma (or tab, if pasted from a
+       spreadsheet) is the name, so <code>Last, First</code> is fine; leave the name
+       off to use the ID as the name. All pasted students get the periods entered here.</p>
+
     <div style="display:flex; align-items:center; gap:1rem; margin-top:1.75rem">
       <h1 style="font-size:1.15rem; margin:0">Current roster ({{ students|length }})</h1>
       {% if students %}
@@ -242,17 +265,5 @@
     {% endif %}
   </div>
 
-  <script>
-    // "Add manually" on a skipped import row pre-fills the manual-add form.
-    document.querySelectorAll('.add-manual').forEach(function (b) {
-      b.addEventListener('click', function () {
-        document.getElementById('add_name').value = b.dataset.name || '';
-        document.getElementById('add_periods').value = b.dataset.period || '';
-        var idf = document.getElementById('add_student_id');
-        idf.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        idf.focus();
-      });
-    });
-  </script>
 </body>
 </html>

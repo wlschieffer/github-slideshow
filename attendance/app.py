@@ -420,6 +420,68 @@ def roster_student_add():
     return redirect(url_for("roster"))
 
 
+@app.post("/roster/bulk_add")
+def roster_bulk_add():
+    """Add many students at once — either from the skipped-import table's
+    per-row ID inputs, or from a pasted list in the bulk textarea."""
+    entries = []  # (student_id, name, [period_tokens])
+    text = request.form.get("bulk_text", "").strip()
+    default_periods = _parse_ids(request.form.get("bulk_periods", ""))
+
+    if text:
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "\t" in line:            # pasted from a spreadsheet
+                sid, _, name = line.partition("\t")
+            elif "," in line:           # ID, Name (name may contain commas)
+                sid, _, name = line.partition(",")
+            else:                       # ID Name  (or just ID)
+                bits = line.split(None, 1)
+                sid, name = bits[0], (bits[1] if len(bits) > 1 else "")
+            sid = sid.strip()
+            if not sid:
+                continue
+            entries.append((sid, name.strip() or sid, default_periods))
+    else:
+        try:
+            n = int(request.form.get("row_count", "0"))
+        except ValueError:
+            n = 0
+        for i in range(n):
+            sid = request.form.get(f"bulk_id_{i}", "").strip()
+            if not sid:
+                continue
+            name = request.form.get(f"bulk_name_{i}", "").strip() or sid
+            periods = _parse_ids(request.form.get(f"bulk_period_{i}", ""))
+            entries.append((sid, name, periods))
+
+    if not entries:
+        flash("No student IDs entered to add.")
+        return redirect(url_for("roster"))
+
+    conn = db.get_db()
+    for sid, name, periods in entries:
+        conn.execute(
+            "INSERT INTO students (student_id, name, active) VALUES (?, ?, 1) "
+            "ON CONFLICT(student_id) DO UPDATE SET name = excluded.name, active = 1",
+            (sid, name),
+        )
+        for tok in periods:
+            pid = db.resolve_period(conn, tok)
+            if pid:
+                conn.execute(
+                    "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
+                    "ON CONFLICT(student_id, period_id) DO NOTHING",
+                    (sid, pid),
+                )
+    conn.commit()
+    conn.close()
+    flash(f"Bulk-added {len(entries)} student(s).")
+    return redirect(url_for("roster"))
+
+
 @app.post("/roster/student/toggle")
 def roster_student_toggle():
     """Activate/deactivate a student (keeps their record and history)."""
