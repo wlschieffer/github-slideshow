@@ -835,14 +835,31 @@ def import_roster_rows(reader):
     conn = db.get_db()
     fieldnames = [(f or "").strip().lower() for f in (reader.fieldnames or [])]
     has_period_col = any(f in ("period", "periods") for f in fieldnames)
-    count = 0
+
+    # First pass: combine all rows for each student, so a student listed once
+    # per period accumulates every period (not just the last row's).
+    students, order = {}, []
     for raw in reader:
         row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
         sid = row.get("student_id") or row.get("id") or row.get("badge")
         name = row.get("name") or row.get("student") or row.get("full_name")
         if not sid or not name:
             continue
-        grade = row.get("grade") or row.get("homeroom") or None
+        if sid not in students:
+            students[sid] = {"name": name, "grade": None, "periods": []}
+            order.append(sid)
+        students[sid]["name"] = name  # latest non-empty name wins
+        grade = row.get("grade") or row.get("homeroom")
+        if grade:
+            students[sid]["grade"] = grade
+        for tok in _parse_ids(row.get("period") or row.get("periods") or ""):
+            if tok not in students[sid]["periods"]:
+                students[sid]["periods"].append(tok)
+
+    # Second pass: upsert each student once, then sync periods if the file
+    # carried a period column (replacing their prior periods with the union).
+    for sid in order:
+        s = students[sid]
         conn.execute(
             """
             INSERT INTO students (student_id, name, grade, active)
@@ -852,12 +869,11 @@ def import_roster_rows(reader):
                 grade = excluded.grade,
                 active = 1
             """,
-            (sid, name, grade),
+            (sid, s["name"], s["grade"]),
         )
         if has_period_col:
-            # The file is authoritative: set this student's periods to match it.
             conn.execute("DELETE FROM enrollments WHERE student_id = ?", (sid,))
-            for tok in _parse_ids(row.get("period") or row.get("periods") or ""):
+            for tok in s["periods"]:
                 pid = db.resolve_period(conn, tok)
                 if pid:
                     conn.execute(
@@ -865,10 +881,9 @@ def import_roster_rows(reader):
                         "ON CONFLICT(student_id, period_id) DO NOTHING",
                         (sid, pid),
                     )
-        count += 1
     conn.commit()
     conn.close()
-    return count
+    return len(order)
 
 
 # ---------------------------------------------------------------------------
