@@ -833,6 +833,16 @@ def import_roster_rows(reader):
             """,
             (sid, name, grade),
         )
+        # Optional period column enrolls the student at the same time. Multiple
+        # periods can be space-separated in the cell, e.g. "1 3 4".
+        for tok in _parse_ids(row.get("period") or row.get("periods") or ""):
+            pid = db.resolve_period(conn, tok)
+            if pid:
+                conn.execute(
+                    "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
+                    "ON CONFLICT(student_id, period_id) DO NOTHING",
+                    (sid, pid),
+                )
         count += 1
     conn.commit()
     conn.close()

@@ -70,6 +70,15 @@ on the **Roster** page (or with the `import` command above):
 student_id,name
 ```
 
+You can also include an optional `period` column to enroll students at the
+same time (space-separated for several, e.g. `1 3 4`):
+
+```
+student_id,name,period
+100001,Ava Martinez,2
+100002,Liam Johnson,1 3 4
+```
+
 Re-importing updates existing students by ID.
 
 ## Bell schedule (Settings page)
