@@ -360,11 +360,17 @@ def _roster_context(conn):
         "JOIN periods p ON p.id = e.period_id ORDER BY p.sort_order, p.name"
     ).fetchall():
         enrolled_periods.setdefault(r["student_id"], []).append(r["name"])
+    # Short tokens (e.g. "01 02 Enrichment") to pre-fill the per-student edit box.
+    enrolled_tokens = {
+        sid: " ".join(n.split(" - ")[0] for n in names)
+        for sid, names in enrolled_periods.items()
+    }
     return {
         "students": conn.execute(
             "SELECT * FROM students ORDER BY active DESC, name"
         ).fetchall(),
         "enrolled_periods": enrolled_periods,
+        "enrolled_tokens": enrolled_tokens,
         "canvas_base_url": db.get_setting(conn, "canvas_base_url", ""),
         "canvas_id_field": db.get_setting(conn, "canvas_id_field", "sis_user_id"),
         "canvas_course_ids": db.get_setting(conn, "canvas_course_ids", ""),
@@ -479,6 +485,34 @@ def roster_bulk_add():
     conn.commit()
     conn.close()
     flash(f"Bulk-added {len(entries)} student(s).")
+    return redirect(url_for("roster"))
+
+
+@app.post("/roster/student/periods")
+def roster_student_periods():
+    """Replace a student's period enrollments (for schedule changes). Past
+    attendance is untouched — it references periods, not enrollments."""
+    sid = request.form.get("student_id", "").strip()
+    tokens = _parse_ids(request.form.get("periods", ""))
+    conn = db.get_db()
+    if not conn.execute("SELECT 1 FROM students WHERE student_id = ?", (sid,)).fetchone():
+        conn.close()
+        flash("Unknown student.")
+        return redirect(url_for("roster"))
+    conn.execute("DELETE FROM enrollments WHERE student_id = ?", (sid,))
+    added = []
+    for tok in tokens:
+        pid = db.resolve_period(conn, tok)
+        if pid:
+            conn.execute(
+                "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
+                "ON CONFLICT(student_id, period_id) DO NOTHING",
+                (sid, pid),
+            )
+            added.append(tok)
+    conn.commit()
+    conn.close()
+    flash(f"Updated periods for {sid}: {', '.join(added) if added else '(none)'}.")
     return redirect(url_for("roster"))
 
 

@@ -232,6 +232,12 @@
       </form>
       {% endif %}
     </div>
+    {% if students %}
+    <p class="muted" style="margin:.25rem 0 0">Change a student's schedule by editing
+       the <strong>Periods</strong> box inline (space-separated, e.g. <code>1 3 4</code>)
+       and clicking <strong>Set</strong> — this replaces their periods; past
+       attendance is kept.</p>
+    {% endif %}
 
     {% if students %}
     <table>
@@ -243,6 +249,13 @@
           <td>{{ s.name }}</td>
           <td class="muted" style="font-size:.85rem; line-height:1.4">
             {% for p in enrolled_periods.get(s.student_id) or [] %}{{ p }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+            <form class="inline" method="post" action="{{ url_for('roster_student_periods') }}"
+                  style="display:block; margin-top:.35rem">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <input type="text" name="periods" value="{{ enrolled_tokens.get(s.student_id, '') }}"
+                     style="width:7rem; font-size:.8rem" title="Space-separated periods, e.g. 1 3 4">
+              <button class="ghost" type="submit" style="font-size:.8rem; padding:.2rem .5rem">Set</button>
+            </form>
           </td>
           <td>{% if s.active %}<span class="pill present">Active</span>{% else %}<span class="pill absent">Inactive</span>{% endif %}</td>
           <td>
