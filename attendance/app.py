@@ -796,14 +796,27 @@ def roster_import():
 
 @app.route("/roster/export.csv")
 def roster_export():
+    """Export the roster in the same shape the import accepts (student_id,
+    name, period) so it round-trips. `period` holds space-separated tokens."""
     conn = db.get_db()
     rows = conn.execute("SELECT * FROM students ORDER BY name").fetchall()
+    pmap = {}
+    for r in conn.execute(
+        "SELECT e.student_id, p.name FROM enrollments e "
+        "JOIN periods p ON p.id = e.period_id ORDER BY p.sort_order, p.name"
+    ).fetchall():
+        short = r["name"].split(" - ")[0] if " - " in r["name"] else r["name"]
+        pmap.setdefault(r["student_id"], []).append(short)
     conn.close()
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["student_id", "name", "active"])
+    w.writerow(["student_id", "name", "period", "active"])
     for r in rows:
-        w.writerow([r["student_id"], r["name"], r["active"]])
+        w.writerow([
+            r["student_id"], r["name"],
+            " ".join(pmap.get(r["student_id"], [])),
+            r["active"],
+        ])
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
