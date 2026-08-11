@@ -79,7 +79,12 @@ student_id,name,period
 100002,Liam Johnson,1 3 4
 ```
 
-Re-importing updates existing students by ID.
+Re-importing updates existing students by ID. When the file **includes a
+period column**, each listed student's periods are **set to match the file**
+(so exporting, editing, and re-importing syncs schedule changes — a blank
+cell clears a student's periods). A file with no period column leaves
+everyone's schedule untouched. The roster **export** uses this same shape
+(`student_id, name, period, active`), so it round-trips.
 
 ## Bell schedule (Settings page)
 

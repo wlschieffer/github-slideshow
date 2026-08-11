@@ -72,9 +72,11 @@
       <a class="btn" href="{{ url_for('roster_export') }}">Export CSV</a>
     </form>
     <p class="muted">Columns: <code>student_id, name</code>, plus an optional
-       <code>period</code> column to enroll them at the same time (space-separated
-       for several, e.g. <code>1 3 4</code>). Importing updates existing students by
-       ID and adds new ones.</p>
+       <code>period</code> column (space-separated for several, e.g. <code>1 3 4</code>).
+       Importing updates existing students by ID and adds new ones. If the file
+       <strong>includes a period column</strong>, each listed student's periods are
+       <strong>set to match the file</strong> (so edits replace their schedule; a
+       blank cell clears it). A file with no period column leaves schedules alone.</p>
 
     <!-- Canvas LMS import (cross-listed: each SECTION maps to a period) -->
     <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>

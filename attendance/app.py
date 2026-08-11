@@ -825,8 +825,16 @@ def roster_export():
 
 
 def import_roster_rows(reader):
-    """Upsert rows from a DictReader. Header names are matched loosely."""
+    """Upsert students from a DictReader. Header names are matched loosely.
+
+    If the file has a `period` (or `periods`) column, each listed student's
+    periods are *replaced* to match the file — so exporting, editing, and
+    re-importing syncs schedule changes (a blank cell clears their periods).
+    Multiple periods are space-separated in the cell, e.g. "1 3 4". A file
+    with no period column leaves enrollments untouched."""
     conn = db.get_db()
+    fieldnames = [(f or "").strip().lower() for f in (reader.fieldnames or [])]
+    has_period_col = any(f in ("period", "periods") for f in fieldnames)
     count = 0
     for raw in reader:
         row = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
@@ -846,16 +854,17 @@ def import_roster_rows(reader):
             """,
             (sid, name, grade),
         )
-        # Optional period column enrolls the student at the same time. Multiple
-        # periods can be space-separated in the cell, e.g. "1 3 4".
-        for tok in _parse_ids(row.get("period") or row.get("periods") or ""):
-            pid = db.resolve_period(conn, tok)
-            if pid:
-                conn.execute(
-                    "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
-                    "ON CONFLICT(student_id, period_id) DO NOTHING",
-                    (sid, pid),
-                )
+        if has_period_col:
+            # The file is authoritative: set this student's periods to match it.
+            conn.execute("DELETE FROM enrollments WHERE student_id = ?", (sid,))
+            for tok in _parse_ids(row.get("period") or row.get("periods") or ""):
+                pid = db.resolve_period(conn, tok)
+                if pid:
+                    conn.execute(
+                        "INSERT INTO enrollments (student_id, period_id) VALUES (?, ?) "
+                        "ON CONFLICT(student_id, period_id) DO NOTHING",
+                        (sid, pid),
+                    )
         count += 1
     conn.commit()
     conn.close()
