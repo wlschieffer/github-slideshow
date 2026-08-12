@@ -95,6 +95,25 @@
        Settings). The kiosk and scanning stay open for students. Default is
        <strong>1234</strong> — change it here.</p>
 
+    <!-- Server address -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Server address</h1>
+    <p class="muted" style="max-width:660px">Auto-detected address:
+       <code>{{ detected_ip }}</code>. If that isn't the one the scan station can
+       reach (a Mac with a VPN or several network adapters can pick the wrong one),
+       enter the correct address below — the server is reachable on all of these, so
+       use whichever is on the scan station's network. Leave blank to auto-detect.</p>
+    {% if ip_candidates %}
+    <p class="muted">This computer's addresses:
+       {% for a in ip_candidates %}<code>{{ a }}</code>{{ ' · ' if not loop.last }}{% endfor %}</p>
+    {% endif %}
+    <form class="controls" method="post" action="{{ url_for('settings_server_ip') }}">
+      <label>Use this address
+        <input type="text" name="server_ip_override" value="{{ server_ip_override }}"
+               placeholder="e.g. 10.0.4.87">
+      </label>
+      <button type="submit">Save</button>
+    </form>
+
     <!-- Kiosk link file -->
     <h1 style="font-size:1.15rem; margin-top:1.5rem">Kiosk link file</h1>
     <p class="muted" style="max-width:660px">This computer's current kiosk address is

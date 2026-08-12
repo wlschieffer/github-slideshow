@@ -239,6 +239,12 @@ so login cookies can't be forged. Forgot the PIN? Run `python app.py reset`
 
 ## Publishing the kiosk link (for changing IPs)
 
+If auto-detection picks the wrong address (a Mac with a VPN or several network
+adapters can), open **Settings → Server address**: it lists all of this
+computer's addresses and lets you **pin the right one** (the server listens on
+all of them, so use whichever is on the scan station's network). Blank =
+auto-detect.
+
 If this computer's IP changes day to day (common on DHCP networks), set a
 **Kiosk link file** path under **Settings → Kiosk link file** — point it at a
 file in a synced folder (OneDrive, Dropbox, etc.). On every server start (and

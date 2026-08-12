@@ -12,8 +12,10 @@ Run:  python app.py            (serves on 0.0.0.0:8000 via waitress)
 import csv
 import io
 import os
+import platform
 import re
 import socket
+import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -1007,6 +1009,7 @@ def settings():
     cooldown = db.get_setting(conn, "scan_cooldown_ms", "1500")
     lead = db.get_setting(conn, "scan_lead_minutes", "7")
     kiosk_url_path = db.get_setting(conn, "kiosk_url_path", "")
+    server_ip_override = db.get_setting(conn, "server_ip_override", "")
     conn.close()
     return render_template(
         "settings.html",
@@ -1021,6 +1024,9 @@ def settings():
         scan_lead_minutes=lead,
         kiosk_url_path=kiosk_url_path,
         current_kiosk_url=kiosk_urls()["kiosk"],
+        server_ip_override=server_ip_override,
+        detected_ip=detect_lan_ip(),
+        ip_candidates=all_ipv4_addresses(),
     )
 
 
@@ -1055,6 +1061,26 @@ def settings_pin():
     conn.commit()
     conn.close()
     flash("Staff PIN updated.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/server_ip")
+def settings_server_ip():
+    """Pin the IP used in the kiosk link (blank = auto-detect)."""
+    ip = request.form.get("server_ip_override", "").strip()
+    conn = db.get_db()
+    db.set_setting(conn, "server_ip_override", ip)
+    kpath = db.get_setting(conn, "kiosk_url_path", "")
+    conn.commit()
+    conn.close()
+    msg = f"Kiosk address set to {ip}." if ip else "Kiosk address back to auto-detect."
+    if kpath:
+        try:
+            write_kiosk_url_file(kpath)
+            msg += " Link file updated."
+        except OSError as e:
+            msg += f" (Couldn't update the link file: {e})"
+    flash(msg)
     return redirect(url_for("settings"))
 
 
@@ -1313,8 +1339,49 @@ def detect_lan_ip():
         s.close()
 
 
+def all_ipv4_addresses():
+    """Best-effort list of this machine's IPv4 addresses (all interfaces),
+    so the user can pick the one on the scan station's network."""
+    found = []
+
+    def add(a):
+        a = (a or "").strip()
+        if a and a not in found and not a.startswith(("127.", "169.254.")):
+            found.append(a)
+
+    add(detect_lan_ip())
+    try:
+        for res in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            add(res[4][0])
+    except (socket.gaierror, OSError):
+        pass
+    try:
+        if platform.system() == "Windows":
+            out = subprocess.run(["ipconfig"], capture_output=True, text=True, timeout=3).stdout
+            for line in out.splitlines():
+                if "ipv4 address" in line.lower():
+                    add(line.split(":")[-1])
+        else:
+            out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=3).stdout
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("inet ") and "inet6" not in line:
+                    add(line.split()[1])
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return found
+
+
+def _server_ip():
+    """The IP used in the kiosk link: a manual override if set, else auto."""
+    conn = db.get_db()
+    override = (db.get_setting(conn, "server_ip_override", "") or "").strip()
+    conn.close()
+    return override or detect_lan_ip()
+
+
 def kiosk_urls():
-    ip = detect_lan_ip()
+    ip = _server_ip()
     host = socket.gethostname()
     host = host if host.endswith(".local") else host.split(".")[0] + ".local"
     return {
@@ -1406,6 +1473,11 @@ if __name__ == "__main__":
         print(f"  Scan station (kiosk): {urls['kiosk']}")
         print(f"  Staff / reports:      {urls['admin']}")
         print(f"  By name (if allowed): {urls['local']}")
+        others = [a for a in all_ipv4_addresses() if a not in urls["kiosk"]]
+        if others:
+            print(f"  Other addresses on this computer: {', '.join(others)}")
+            print("  (If the kiosk address above is wrong, pick the right one in "
+                  "Settings > Server address.)")
         conn = db.get_db()
         kpath = db.get_setting(conn, "kiosk_url_path", "")
         conn.close()
