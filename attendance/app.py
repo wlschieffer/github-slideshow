@@ -1328,7 +1328,21 @@ def absences_export():
 # Entry point & network helpers
 # ---------------------------------------------------------------------------
 def detect_lan_ip():
-    """This computer's LAN IP (the address other devices use to reach it)."""
+    """This computer's LAN IP (the address other devices use to reach it).
+
+    On macOS, prefer Wi-Fi (en0) — the network the scan station is usually on —
+    since the default-route interface can be a VPN or virtual adapter. Falls
+    back to the default-route address if en0 has no IP."""
+    if platform.system() == "Darwin":
+        try:
+            out = subprocess.run(
+                ["ipconfig", "getifaddr", "en0"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+            if out and not out.startswith(("127.", "169.254.")):
+                return out
+        except (OSError, subprocess.SubprocessError):
+            pass
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))  # no packets sent; just picks the interface
