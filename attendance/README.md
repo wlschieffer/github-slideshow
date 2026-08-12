@@ -237,6 +237,17 @@ generates its own random session key in `data/secret_key` (kept out of git)
 so login cookies can't be forged. Forgot the PIN? Run `python app.py reset`
 (wipes data) or ask to have it reset.
 
+## Publishing the kiosk link (for changing IPs)
+
+If this computer's IP changes day to day (common on DHCP networks), set a
+**Kiosk link file** path under **Settings → Kiosk link file** — point it at a
+file in a synced folder (OneDrive, Dropbox, etc.). On every server start (and
+when you save the setting), the app detects the current LAN IP and writes the
+kiosk link there, so you and the scan station can always find today's address
+from any device. Use a `.html` path for a clickable page or `.txt` for plain
+text. The server also prints the current kiosk/admin/`.local` URLs to the
+console on startup.
+
 ## Notes for real deployment
 
 - The app serves via **waitress**, a production-grade WSGI server that

@@ -95,6 +95,24 @@
        Settings). The kiosk and scanning stay open for students. Default is
        <strong>1234</strong> — change it here.</p>
 
+    <!-- Kiosk link file -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Kiosk link file</h1>
+    <p class="muted" style="max-width:660px">This computer's current kiosk address is
+       <code>{{ current_kiosk_url }}</code>. Point this at a file in a synced folder
+       (OneDrive, Dropbox…) and the app writes today's link there every time the
+       server starts — so you and the scan station can always find the current
+       address from any device, even if the IP changes.</p>
+    <form class="controls" method="post" action="{{ url_for('settings_kiosk_file') }}" style="flex-wrap:wrap">
+      <label style="flex:1 1 460px">File path
+        <input type="text" name="kiosk_url_path" value="{{ kiosk_url_path }}"
+               placeholder="/Users/you/OneDrive/Attendance Kiosk.html">
+      </label>
+      <button type="submit">Save &amp; write now</button>
+    </form>
+    <p class="muted">Use a <code>.html</code> path for a clickable page, or
+       <code>.txt</code> for plain text. Point it at a folder to use a default
+       filename. Leave blank to turn this off.</p>
+
     <!-- Weekday map -->
     <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>
     <form method="post" action="{{ url_for('settings_weekdays') }}">

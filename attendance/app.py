@@ -13,9 +13,12 @@ import csv
 import io
 import os
 import re
+import socket
 import sys
 from datetime import date, datetime, timedelta
 from functools import wraps
+
+PORT = 8000
 
 from flask import (
     Flask,
@@ -1003,6 +1006,7 @@ def settings():
     current = db.current_period(conn)
     cooldown = db.get_setting(conn, "scan_cooldown_ms", "1500")
     lead = db.get_setting(conn, "scan_lead_minutes", "7")
+    kiosk_url_path = db.get_setting(conn, "kiosk_url_path", "")
     conn.close()
     return render_template(
         "settings.html",
@@ -1015,6 +1019,8 @@ def settings():
         current_name=current["name"] if current else None,
         scan_cooldown_ms=cooldown,
         scan_lead_minutes=lead,
+        kiosk_url_path=kiosk_url_path,
+        current_kiosk_url=kiosk_urls()["kiosk"],
     )
 
 
@@ -1049,6 +1055,25 @@ def settings_pin():
     conn.commit()
     conn.close()
     flash("Staff PIN updated.")
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/kiosk_file")
+def settings_kiosk_file():
+    """Save where to publish the kiosk link, and write it now."""
+    path = request.form.get("kiosk_url_path", "").strip()
+    conn = db.get_db()
+    db.set_setting(conn, "kiosk_url_path", path)
+    conn.commit()
+    conn.close()
+    if not path:
+        flash("Kiosk link file disabled.")
+        return redirect(url_for("settings"))
+    try:
+        written = write_kiosk_url_file(path)
+        flash(f"Saved, and wrote the current kiosk link to: {written}")
+    except OSError as e:
+        flash(f"Saved the path, but couldn't write the file there: {e}")
     return redirect(url_for("settings"))
 
 
@@ -1274,8 +1299,73 @@ def absences_export():
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point & network helpers
 # ---------------------------------------------------------------------------
+def detect_lan_ip():
+    """This computer's LAN IP (the address other devices use to reach it)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))  # no packets sent; just picks the interface
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def kiosk_urls():
+    ip = detect_lan_ip()
+    host = socket.gethostname()
+    host = host if host.endswith(".local") else host.split(".")[0] + ".local"
+    return {
+        "kiosk": f"http://{ip}:{PORT}/",
+        "admin": f"http://{ip}:{PORT}/admin",
+        "local": f"http://{host}:{PORT}/",
+    }
+
+
+def write_kiosk_url_file(path):
+    """Write the current kiosk link to `path` (HTML if it ends .html/.htm,
+    else plain text). If `path` is a folder, a default filename is used.
+    Returns the resolved path written, or "" if no path was given."""
+    path = os.path.expanduser((path or "").strip())
+    if not path:
+        return ""
+    if os.path.isdir(path) or path.endswith(("/", "\\")):
+        path = os.path.join(path, "Attendance Kiosk.html")
+    urls = kiosk_urls()
+    stamp = datetime.now().strftime("%b %d, %Y at %I:%M %p")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    if path.lower().endswith((".html", ".htm")):
+        content = (
+            '<!doctype html><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<title>Attendance Kiosk</title>"
+            '<body style="font-family:system-ui,-apple-system,sans-serif;max-width:640px;'
+            'margin:3rem auto;padding:0 1.25rem;line-height:1.5">'
+            "<h1>Attendance kiosk</h1>"
+            "<p>Open on a device connected to the school network:</p>"
+            f'<p><a style="font-size:1.5rem" href="{urls["kiosk"]}">▶ Open the scan station</a></p>'
+            f'<p><a href="{urls["admin"]}">Staff / reports →</a></p>'
+            f'<p style="color:#666">If your network allows names: '
+            f'<a href="{urls["local"]}">{urls["local"]}</a></p>'
+            f'<hr><p style="color:#999;font-size:.9rem">Address: {urls["kiosk"]}<br>'
+            f"Refreshed when the server last started: {stamp}.<br>"
+            "If the links stop working, restart the server to update this file.</p></body>"
+        )
+    else:
+        content = (
+            "Attendance kiosk URLs\n=====================\n\n"
+            f"Scan station (kiosk): {urls['kiosk']}\n"
+            f"Staff / reports:      {urls['admin']}\n"
+            f"By name (if allowed): {urls['local']}\n\n"
+            f"Refreshed at server start: {stamp}\n"
+        )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
 def _cli_import(path):
     db.init_db()
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -1310,8 +1400,18 @@ if __name__ == "__main__":
     else:
         from waitress import serve
 
-        host, port = "0.0.0.0", 8000
-        print(f"Attendance app running at http://{host}:{port}  (Ctrl+C to stop)")
-        print("  Kiosk: /   Attendance: /admin   Reports: /reports   "
-              "Roster: /roster   Schedule: /schedule")
-        serve(app, host=host, port=port)
+        urls = kiosk_urls()
+        print(f"Attendance app running (Ctrl+C to stop)")
+        print(f"  Scan station (kiosk): {urls['kiosk']}")
+        print(f"  Staff / reports:      {urls['admin']}")
+        print(f"  By name (if allowed): {urls['local']}")
+        conn = db.get_db()
+        kpath = db.get_setting(conn, "kiosk_url_path", "")
+        conn.close()
+        if kpath:
+            try:
+                written = write_kiosk_url_file(kpath)
+                print(f"  Wrote kiosk link to:  {written}")
+            except OSError as e:
+                print(f"  Could not write kiosk link file: {e}")
+        serve(app, host="0.0.0.0", port=PORT)
