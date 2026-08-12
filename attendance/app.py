@@ -1061,7 +1061,7 @@ def settings_pin():
 @app.post("/settings/kiosk_file")
 def settings_kiosk_file():
     """Save where to publish the kiosk link, and write it now."""
-    path = request.form.get("kiosk_url_path", "").strip()
+    path = request.form.get("kiosk_url_path", "").strip().strip('"').strip("'").strip()
     conn = db.get_db()
     db.set_setting(conn, "kiosk_url_path", path)
     conn.commit()
@@ -1328,7 +1328,8 @@ def write_kiosk_url_file(path):
     """Write the current kiosk link to `path` (HTML if it ends .html/.htm,
     else plain text). If `path` is a folder, a default filename is used.
     Returns the resolved path written, or "" if no path was given."""
-    path = os.path.expanduser((path or "").strip())
+    # Tolerate a path pasted with surrounding quotes (common with spaces).
+    path = os.path.expanduser((path or "").strip().strip('"').strip("'").strip())
     if not path:
         return ""
     if os.path.isdir(path) or path.endswith(("/", "\\")):
