@@ -131,6 +131,15 @@
     <p class="muted">Use a <code>.html</code> path for a clickable page, or
        <code>.txt</code> for plain text. Point it at a folder to use a default
        filename. Leave blank to turn this off.</p>
+    {% if kiosk_last_write %}
+    <p class="muted">Last write:
+      {% if kiosk_last_write.startswith('FAILED') %}
+        <span class="pill absent">{{ kiosk_last_write }}</span>
+      {% else %}
+        <span class="pill present">{{ kiosk_last_write }}</span>
+      {% endif %}
+    </p>
+    {% endif %}
 
     <!-- Weekday map -->
     <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>

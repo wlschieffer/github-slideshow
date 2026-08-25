@@ -1010,6 +1010,7 @@ def settings():
     lead = db.get_setting(conn, "scan_lead_minutes", "7")
     kiosk_url_path = db.get_setting(conn, "kiosk_url_path", "")
     server_ip_override = db.get_setting(conn, "server_ip_override", "")
+    kiosk_last_write = db.get_setting(conn, "kiosk_last_write", "")
     conn.close()
     return render_template(
         "settings.html",
@@ -1027,6 +1028,7 @@ def settings():
         server_ip_override=server_ip_override,
         detected_ip=detect_lan_ip(),
         ip_candidates=all_ipv4_addresses(),
+        kiosk_last_write=kiosk_last_write,
     )
 
 
@@ -1075,11 +1077,7 @@ def settings_server_ip():
     conn.close()
     msg = f"Kiosk address set to {ip}." if ip else "Kiosk address back to auto-detect."
     if kpath:
-        try:
-            write_kiosk_url_file(kpath)
-            msg += " Link file updated."
-        except OSError as e:
-            msg += f" (Couldn't update the link file: {e})"
+        msg += " " + record_kiosk_write(kpath)
     flash(msg)
     return redirect(url_for("settings"))
 
@@ -1095,11 +1093,7 @@ def settings_kiosk_file():
     if not path:
         flash("Kiosk link file disabled.")
         return redirect(url_for("settings"))
-    try:
-        written = write_kiosk_url_file(path)
-        flash(f"Saved, and wrote the current kiosk link to: {written}")
-    except OSError as e:
-        flash(f"Saved the path, but couldn't write the file there: {e}")
+    flash(record_kiosk_write(path))
     return redirect(url_for("settings"))
 
 
@@ -1443,9 +1437,29 @@ def write_kiosk_url_file(path):
             f"By name (if allowed): {urls['local']}\n\n"
             f"Refreshed at server start: {stamp}\n"
         )
-    with open(path, "w", encoding="utf-8") as f:
+    # Atomic write (temp then replace) — friendlier to synced folders.
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write(content)
+    os.replace(tmp, path)
     return path
+
+
+def record_kiosk_write(kpath):
+    """Write the kiosk link file and remember the outcome so the Settings page
+    can show whether the last write succeeded or failed (instead of it only
+    going to the Terminal). Returns a human-readable result string."""
+    stamp = datetime.now().strftime("%b %d, %Y %I:%M %p")
+    try:
+        written = write_kiosk_url_file(kpath)
+        result = f"OK — wrote {written} ({stamp})" if written else f"No path set ({stamp})"
+    except OSError as e:
+        result = f"FAILED ({stamp}): {e}"
+    conn = db.get_db()
+    db.set_setting(conn, "kiosk_last_write", result)
+    conn.commit()
+    conn.close()
+    return result
 
 
 def _cli_import(path):
@@ -1496,9 +1510,5 @@ if __name__ == "__main__":
         kpath = db.get_setting(conn, "kiosk_url_path", "")
         conn.close()
         if kpath:
-            try:
-                written = write_kiosk_url_file(kpath)
-                print(f"  Wrote kiosk link to:  {written}")
-            except OSError as e:
-                print(f"  Could not write kiosk link file: {e}")
+            print(f"  Kiosk link file: {record_kiosk_write(kpath)}")
         serve(app, host="0.0.0.0", port=PORT)
