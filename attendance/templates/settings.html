@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings — Bell schedule</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Settings</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Class&nbsp;Lists</a>
+    <a href="{{ url_for('settings') }}">Settings</a>
+    <a href="{{ url_for('staff_logout') }}">Log&nbsp;out</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Bell schedule</h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+
+    <div class="stat" style="display:inline-block; margin-bottom:1rem">
+      <div class="l">Right now</div>
+      <div class="n" style="font-size:1.2rem">
+        {% if active_name %}{{ active_name }}{% else %}Off (manual){% endif %}
+        {% if current_name %}<span class="muted">· {{ current_name }} period</span>{% endif %}
+      </div>
+    </div>
+
+    <!-- Today's mode -->
+    <h1 style="font-size:1.15rem; margin-top:1rem">Today's schedule</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_mode') }}">
+      <label>Mode
+        <select name="schedule_mode">
+          <option value="auto" {{ 'selected' if mode == 'auto' }}>Auto (by weekday)</option>
+          {% for s in schedules %}
+            <option value="{{ s.name }}" {{ 'selected' if mode == s.name }}>Force: {{ s.name }}</option>
+          {% endfor %}
+          <option value="off" {{ 'selected' if mode == 'off' }}>Off — pick period manually</option>
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <p class="muted">
+      <strong>Auto</strong> follows the weekday map below. <strong>Force</strong> pins
+      a specific schedule for a special day (e.g. Pep Rally). <strong>Off</strong>
+      turns off automatic period detection so staff choose the period on the kiosk —
+      for non-traditional days. Remember to set this back to <strong>Auto</strong> afterward.
+    </p>
+
+    <!-- Scanner -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Scanner</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_scan') }}">
+      <label>Double-scan cooldown (milliseconds)
+        <input type="number" name="scan_cooldown_ms" value="{{ scan_cooldown_ms }}"
+               min="0" max="10000" step="100">
+      </label>
+      <label>Passing-period lead (minutes)
+        <input type="number" name="scan_lead_minutes" value="{{ scan_lead_minutes }}"
+               min="0" max="30" step="1">
+      </label>
+      <button type="submit">Save</button>
+    </form>
+    <p class="muted">
+      <strong>Cooldown</strong> ignores a repeat read of the <em>same</em> ID within
+      that many milliseconds, so a badge that scans twice in one swipe counts once
+      (default 1500; 0 disables).
+    </p>
+    <p class="muted">
+      <strong>Passing-period lead</strong> is how many minutes <em>before</em> a
+      period a scan counts for that period — set it to your passing-period length
+      (default 7). So students scanning in the hallway before class (including
+      before 1st period) are marked for the <em>upcoming</em> class, not the one
+      that just ended.
+    </p>
+
+    <!-- Staff PIN -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Staff PIN</h1>
+    <form class="controls" method="post" action="{{ url_for('settings_pin') }}">
+      <label>Current PIN
+        <input type="password" name="current_pin" inputmode="numeric" autocomplete="off" required>
+      </label>
+      <label>New PIN (4+ digits)
+        <input type="password" name="new_pin" inputmode="numeric" autocomplete="off" required>
+      </label>
+      <button type="submit">Change PIN</button>
+    </form>
+    <p class="muted">Protects the staff pages (Live, Reports, Roster, Schedule,
+       Settings). The kiosk and scanning stay open for students. Default is
+       <strong>1234</strong> — change it here.</p>
+
+    <!-- Server address -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Server address</h1>
+    <p class="muted" style="max-width:660px">Auto-detected address:
+       <code>{{ detected_ip }}</code>. If that isn't the one the scan station can
+       reach (a Mac with a VPN or several network adapters can pick the wrong one),
+       enter the correct address below — the server is reachable on all of these, so
+       use whichever is on the scan station's network. Leave blank to auto-detect.</p>
+    {% if ip_candidates %}
+    <p class="muted">This computer's addresses:
+       {% for a in ip_candidates %}<code>{{ a }}</code>{{ ' · ' if not loop.last }}{% endfor %}</p>
+    {% endif %}
+    <form class="controls" method="post" action="{{ url_for('settings_server_ip') }}">
+      <label>Use this address
+        <input type="text" name="server_ip_override" value="{{ server_ip_override }}"
+               placeholder="e.g. 10.0.4.87">
+      </label>
+      <button type="submit">Save</button>
+    </form>
+
+    <!-- Kiosk link file -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Kiosk link file</h1>
+    <p class="muted" style="max-width:660px">This computer's current kiosk address is
+       <code>{{ current_kiosk_url }}</code>. Point this at a file in a synced folder
+       (OneDrive, Dropbox…) and the app writes today's link there every time the
+       server starts — so you and the scan station can always find the current
+       address from any device, even if the IP changes.</p>
+    <form class="controls" method="post" action="{{ url_for('settings_kiosk_file') }}" style="flex-wrap:wrap">
+      <label style="flex:1 1 460px">File path
+        <input type="text" name="kiosk_url_path" value="{{ kiosk_url_path }}"
+               placeholder="/Users/you/OneDrive/Attendance Kiosk.html">
+      </label>
+      <button type="submit">Save &amp; write now</button>
+    </form>
+    <p class="muted">Use a <code>.html</code> path for a clickable page, or
+       <code>.txt</code> for plain text. Point it at a folder to use a default
+       filename. Leave blank to turn this off.</p>
+    {% if kiosk_last_write %}
+    <p class="muted">Last write:
+      {% if kiosk_last_write.startswith('FAILED') %}
+        <span class="pill absent">{{ kiosk_last_write }}</span>
+      {% else %}
+        <span class="pill present">{{ kiosk_last_write }}</span>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    <!-- Weekday map -->
+    <h1 style="font-size:1.15rem; margin-top:1.5rem">Weekday map (used in Auto mode)</h1>
+    <form method="post" action="{{ url_for('settings_weekdays') }}">
+      <table>
+        <thead><tr><th>Day</th><th>Schedule</th></tr></thead>
+        <tbody>
+          {% for wd in range(7) %}
+          <tr>
+            <td>{{ weekday_names[wd] }}</td>
+            <td>
+              <select name="wd_{{ wd }}">
+                <option value="" {{ 'selected' if weekday_map[wd] == '' }}>— none (no school) —</option>
+                {% for s in schedules %}
+                  <option value="{{ s.name }}" {{ 'selected' if weekday_map[wd] == s.name }}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" style="margin-top:1rem">Save weekday map</button>
+    </form>
+
+    <!-- Schedule time editor -->
+    <h1 style="font-size:1.15rem; margin-top:2rem">Edit schedule times</h1>
+    <p class="muted">Adjust the start/end time of any period within a schedule.
+       Times are 24-hour (e.g. 13:48 = 1:48&nbsp;PM).</p>
+    {% for s in schedules %}
+      <h1 style="font-size:1rem; margin-top:1.25rem">{{ s.name }}</h1>
+      <form method="post" action="{{ url_for('settings_times') }}">
+        <input type="hidden" name="schedule_id" value="{{ s.id }}">
+        <table>
+          <thead><tr><th>Period</th><th>Start</th><th>End</th></tr></thead>
+          <tbody>
+            {% for r in sched_times[s.id] %}
+            <tr>
+              <td>{{ r.period_name }}</td>
+              <td><input type="time" name="start_{{ r.period_id }}" value="{{ r.start_time }}"></td>
+              <td><input type="time" name="end_{{ r.period_id }}" value="{{ r.end_time }}"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <button type="submit" style="margin-top:.5rem">Save {{ s.name }} times</button>
+      </form>
+    {% endfor %}
+  </div>
+</body>
+</html>

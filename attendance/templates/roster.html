@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roster</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Roster</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Class&nbsp;Lists</a>
+    <a href="{{ url_for('settings') }}">Settings</a>
+    <a href="{{ url_for('staff_logout') }}">Log&nbsp;out</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Roster ({{ students|length }} students)</h1>
+
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+
+    {% if import_result %}
+    <div class="flash" style="background:#064e3b; border-color:#16a34a">
+      <strong>Canvas import complete.</strong>
+      {{ import_result.n_students }} students, {{ import_result.n_enroll }} enrollments imported.
+      {% if import_result.skipped %}<br><strong>{{ import_result.skipped|length }} skipped</strong>
+        — no {{ import_result.id_label }}. See below: if these students have a value in a
+        <em>different</em> ID column, re-import with that "ID to use for scanning".{% endif %}
+    </div>
+    {% if import_result.skipped %}
+    <form method="post" action="{{ url_for('roster_bulk_add') }}">
+      <input type="hidden" name="row_count" value="{{ import_result.skipped|length }}">
+      <table>
+        <thead><tr><th>Section</th><th>Name</th><th>SIS</th><th>Login</th><th>Canvas</th><th>Enter badge/SIS to add</th></tr></thead>
+        <tbody>
+          {% for r in import_result.skipped %}
+          <tr>
+            <td class="muted">{{ r.section }}</td>
+            <td>{{ r.name }}<input type="hidden" name="bulk_name_{{ loop.index0 }}" value="{{ r.name }}"></td>
+            <td>{% if r.sis %}{{ r.sis }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+            <td>{% if r.login %}{{ r.login }}{% else %}<span class="pill absent">—</span>{% endif %}</td>
+            <td class="muted">{{ r.canvas_id }}</td>
+            <td>
+              <input type="hidden" name="bulk_period_{{ loop.index0 }}" value="{{ r.period }}">
+              <input type="text" name="bulk_id_{{ loop.index0 }}" placeholder="badge / SIS" style="width:9rem">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" style="margin-top:.75rem">Add all entered IDs</button>
+    </form>
+    <p class="muted">Look up each student's SIS/badge number on the Canvas
+       <em>People</em> page, type it in the last column, and click
+       <strong>Add all entered IDs</strong> — the whole list at once, with names and
+       periods already filled in. Rows you leave blank are ignored.</p>
+    {% endif %}
+    {% endif %}
+
+    <form class="controls" method="post" action="{{ url_for('roster_import') }}"
+          enctype="multipart/form-data">
+      <label>Import CSV
+        <input type="file" name="file" accept=".csv" required>
+      </label>
+      <button type="submit">Import</button>
+      <a class="btn" href="{{ url_for('roster_export') }}">Export CSV</a>
+    </form>
+    <p class="muted">Columns: <code>student_id, name</code>, plus an optional
+       <code>period</code> column. For multiple periods, either put several in one
+       cell (<code>1 3 4</code>) or list the student on several rows (one period
+       each) — both work. Importing updates existing students by ID and adds new
+       ones. If the file <strong>includes a period column</strong>, each listed
+       student's periods are <strong>set to match the file</strong> (so edits replace
+       their schedule; a blank cell clears it). A file with no period column leaves
+       schedules alone.</p>
+
+    <!-- Canvas LMS import (cross-listed: each SECTION maps to a period) -->
+    <h1 style="font-size:1.15rem; margin-top:1.75rem">Import from Canvas LMS</h1>
+    <p class="muted" style="max-width:660px">Because your courses are cross-listed
+       with a section per period, you map <strong>sections</strong> to periods.
+       Enter your course IDs and click <strong>List sections</strong>; a period is
+       filled in for each section from its name (adjust as needed), then Preview
+       and Import. Pending/not-yet-active enrollments are included.</p>
+
+    <!-- Step 1: discover sections -->
+    <form method="post" action="{{ url_for('roster_canvas') }}"
+          style="display:flex; flex-direction:column; gap:.75rem; max-width:660px">
+      <label>Canvas site URL
+        <input type="url" name="base_url" value="{{ canvas_base_url }}"
+               placeholder="https://yourschool.instructure.com">
+      </label>
+      <label>API token <span class="muted">(paste each time — never saved)</span>
+        <input type="password" name="token" autocomplete="off"
+               value="{{ canvas_token or '' }}" placeholder="Canvas access token">
+      </label>
+      <label>Course IDs <span class="muted">(comma- or line-separated — the number in each course's URL)</span>
+        <textarea name="course_ids" rows="2"
+                  placeholder="1234567, 1234568">{{ canvas_course_ids }}</textarea>
+      </label>
+      <div>
+        <button type="submit" name="action" value="sections">List sections</button>
+      </div>
+    </form>
+
+    <!-- Step 2: map each section to a period, then preview / import -->
+    {% if sections is defined and sections %}
+    <form method="post" action="{{ url_for('roster_canvas') }}" style="margin-top:1rem; max-width:760px">
+      <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
+      <input type="hidden" name="token" value="{{ canvas_token or '' }}">
+      <input type="hidden" name="section_ids" value="{{ section_ids }}">
+      <div class="flash" style="background:#1e3a8a; border-color:#3b82f6">
+        Found {{ sections|length }} section(s). The <strong>Period</strong> box is
+        pre-filled from each section's name — check it and fix any that are wrong.
+        <strong>Retrieved</strong> is how many students this app can read.
+      </div>
+      <table>
+        <thead><tr><th>Course</th><th>Section ID</th><th>Section name</th><th>Canvas #</th><th>Retrieved</th><th>Period</th></tr></thead>
+        <tbody>
+          {% for s in sections %}
+          <tr>
+            <td class="muted">{{ s.course }}</td>
+            <td class="muted">{{ s.id }}</td>
+            <td>{{ s.name }}</td>
+            <td class="muted">{{ s.count if s.count is not none else '—' }}</td>
+            <td>{% if s.retrieved is none %}<span class="pill absent">error</span>{% elif s.retrieved == 0 %}<span class="pill absent">0</span>{% else %}<strong>{{ s.retrieved }}</strong>{% endif %}</td>
+            <td><input type="text" name="period_{{ s.id }}" value="{{ s.period_guess }}"
+                       style="width:6rem" placeholder="e.g. 1"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="controls" style="margin-top:1rem">
+        <label>ID to use for scanning
+          <select name="id_field">
+            {% for key, label in id_fields.items() %}
+              <option value="{{ key }}" {{ 'selected' if canvas_id_field == key }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit" name="action" value="preview">Preview</button>
+        <button type="submit" name="action" value="import" class="ghost">Import now</button>
+      </div>
+    </form>
+    <p class="muted"><strong>Preview first</strong> to confirm the ID column matches
+       your badges, then import. Your token is never written to disk.
+       Leave a section's Period blank to skip it.</p>
+    {% endif %}
+
+    {% if preview %}
+    <div class="flash" style="background:#064e3b; border-color:#16a34a">
+      <strong>Preview only — nothing imported yet.</strong>
+      Found {{ preview.total }} students across {{ preview.counts|length }} section(s)
+      ({% for c in preview.counts %}{{ c.section }}→P{{ c.period }}: {{ c.n }}{{ ', ' if not loop.last }}{% endfor %}).
+      {% if preview.missing %}
+        <br><strong>{{ preview.missing }}</strong> student(s) have no
+        {{ preview.id_label }} — those would be skipped. If that column is blank,
+        pick a different "ID to use" that is populated below.
+      {% endif %}
+    </div>
+    <table>
+      <thead><tr>
+        <th>Section</th><th>Period</th><th>Name</th>
+        <th>{{ preview.id_label }} (used)</th><th>SIS ID</th><th>Login ID</th><th>Canvas ID</th>
+      </tr></thead>
+      <tbody>
+        {% for r in preview.rows %}
+        <tr>
+          <td class="muted">{{ r.section }}</td>
+          <td>{{ r.period }}</td>
+          <td>{{ r.name }}</td>
+          <td>{% if r.chosen %}<strong>{{ r.chosen }}</strong>{% else %}<span class="pill absent">missing</span>{% endif %}</td>
+          <td class="muted">{{ r.sis or '' }}</td>
+          <td class="muted">{{ r.login or '' }}</td>
+          <td class="muted">{{ r.canvas_id }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="{{ url_for('roster_canvas') }}" style="margin:.75rem 0 0">
+      <input type="hidden" name="base_url" value="{{ canvas_base_url }}">
+      <input type="hidden" name="token" value="{{ canvas_token }}">
+      <input type="hidden" name="section_ids" value="{{ section_ids }}">
+      {% for sid, period in mapped %}
+        <input type="hidden" name="period_{{ sid }}" value="{{ period }}">
+      {% endfor %}
+      <input type="hidden" name="id_field" value="{{ canvas_id_field }}">
+      <button type="submit" name="action" value="import">Looks right — import these</button>
+    </form>
+    {% endif %}
+
+    <!-- Manual add (failsafe for students Canvas won't hand over) -->
+    <h1 style="font-size:1.15rem; margin-top:1.75rem">Add a student manually</h1>
+    <form method="post" action="{{ url_for('roster_student_add') }}" class="controls" style="flex-wrap:wrap">
+      <label>ID (badge / SIS)
+        <input type="text" name="student_id" id="add_student_id" autocomplete="off" required>
+      </label>
+      <label>Name
+        <input type="text" name="name" id="add_name" autocomplete="off" required style="min-width:14rem">
+      </label>
+      <label>Periods <span class="muted">(e.g. 1 2 4)</span>
+        <input type="text" name="periods" id="add_periods" placeholder="1 2 4">
+      </label>
+      <button type="submit">Add student</button>
+    </form>
+    <p class="muted">Use this for students Canvas won't return (look up their
+       SIS/badge number on the Canvas People page and type it here). Re-importing
+       from Canvas later won't remove manually-added students.</p>
+
+    <h1 style="font-size:1.15rem; margin-top:1.25rem">Bulk add students</h1>
+    <form method="post" action="{{ url_for('roster_bulk_add') }}" class="controls"
+          style="flex-wrap:wrap; align-items:flex-start">
+      <label style="flex:1 1 340px">Paste one per line — <code>ID</code> or <code>ID, Name</code>
+        <textarea name="bulk_text" rows="4"
+                  placeholder="123456, Martinez, Ava&#10;123457, Johnson, Liam&#10;123458"></textarea>
+      </label>
+      <label>Periods <span class="muted">(applied to all)</span>
+        <input type="text" name="bulk_periods" placeholder="e.g. 2" style="width:6rem">
+      </label>
+      <button type="submit">Bulk add</button>
+    </form>
+    <p class="muted">Everything after the first comma (or tab, if pasted from a
+       spreadsheet) is the name, so <code>Last, First</code> is fine; leave the name
+       off to use the ID as the name. All pasted students get the periods entered here.</p>
+
+    <div style="display:flex; align-items:center; gap:1rem; margin-top:1.75rem">
+      <h1 style="font-size:1.15rem; margin:0">Current roster ({{ students|length }})</h1>
+      {% if students %}
+      <form class="inline" method="post" action="{{ url_for('roster_clear') }}"
+            onsubmit="return confirm('Delete ALL students, their enrollments, and ALL attendance records? This cannot be undone.');">
+        <button class="ghost" type="submit">Clear all students</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if students %}
+    <p class="muted" style="margin:.25rem 0 0">Change a student's schedule by editing
+       the <strong>Periods</strong> box inline (space-separated, e.g. <code>1 3 4</code>)
+       and clicking <strong>Set</strong> — this replaces their periods; past
+       attendance is kept.</p>
+    {% endif %}
+
+    {% if students %}
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Periods</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for s in students %}
+        <tr class="{{ '' if s.active else 'muted' }}">
+          <td class="muted">{{ s.student_id }}</td>
+          <td>{{ s.name }}</td>
+          <td class="muted" style="font-size:.85rem; line-height:1.4">
+            {% for p in enrolled_periods.get(s.student_id) or [] %}{{ p }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+            <form class="inline" method="post" action="{{ url_for('roster_student_periods') }}"
+                  style="display:block; margin-top:.35rem">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <input type="text" name="periods" value="{{ enrolled_tokens.get(s.student_id, '') }}"
+                     style="width:7rem; font-size:.8rem" title="Space-separated periods, e.g. 1 3 4">
+              <button class="ghost" type="submit" style="font-size:.8rem; padding:.2rem .5rem">Set</button>
+            </form>
+          </td>
+          <td>{% if s.active %}<span class="pill present">Active</span>{% else %}<span class="pill absent">Inactive</span>{% endif %}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('roster_student_toggle') }}">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <button class="ghost" type="submit">{{ 'Deactivate' if s.active else 'Activate' }}</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('roster_student_delete') }}"
+                  onsubmit="return confirm('Permanently delete {{ s.name }} and all their attendance? This cannot be undone.');">
+              <input type="hidden" name="student_id" value="{{ s.student_id }}">
+              <button class="ghost" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No students yet — import above.</p>
+    {% endif %}
+  </div>
+
+</body>
+</html>

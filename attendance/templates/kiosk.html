@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scan In</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="kiosk">
+  <div class="topnav">
+    <span class="brand">Scan In</span>
+    <div class="period-picker">
+      <span id="periodLabel" title="Today's bell schedule">{{ (schedule_name ~ ' · Period:') if schedule_name else 'Manual · Period:' }}</span>
+      <select id="period">
+        {% for p in periods %}
+          <option value="{{ p.id }}" {{ 'selected' if p.id == selected_period }}>
+            {{ p.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <a href="{{ url_for('admin') }}">Staff&nbsp;&rsaquo;</a>
+  </div>
+
+  <div class="kiosk-main">
+    <div id="banner" class="banner idle">
+      <div class="status">Ready</div>
+      <div class="sub">Scan your ID to check in</div>
+    </div>
+    <input id="scan" class="scan-input" autocomplete="off" autofocus
+           placeholder="Scan or type ID, then Enter">
+    <div class="hint">The cursor stays here automatically. Just scan.</div>
+  </div>
+
+  <script>
+    const input = document.getElementById('scan');
+    const banner = document.getElementById('banner');
+    const periodSel = document.getElementById('period');
+    const periodLabel = document.getElementById('periodLabel');
+
+    // When the bell schedule is off, the period is chosen manually — remember
+    // that choice across refreshes so a kiosk left running stays put.
+    const bellOnAtLoad = {{ 'true' if schedule_name else 'false' }};
+    if (!bellOnAtLoad) {
+      const saved = localStorage.getItem('manualPeriod');
+      if (saved && periodSel.querySelector('option[value="' + saved + '"]')) {
+        periodSel.value = saved;
+      }
+    }
+
+    // Poll the server so the kiosk auto-advances to the current period as the
+    // bell schedule moves on (and picks up a schedule change) without a manual
+    // refresh. When the bell schedule is off, the manual choice is left alone.
+    async function syncPeriod() {
+      try {
+        const res = await fetch('{{ url_for("api_current_period") }}', { cache: 'no-store' });
+        const d = await res.json();
+        if (d.bell_on && d.period_id) {
+          periodLabel.textContent = d.schedule_name + ' · Period:';
+          const val = String(d.period_id);
+          if (periodSel.value !== val) {
+            if (!periodSel.querySelector('option[value="' + val + '"]')) {
+              const opt = document.createElement('option');
+              opt.value = val;
+              opt.textContent = d.period_name || ('Period ' + val);
+              periodSel.appendChild(opt);
+            }
+            periodSel.value = val;  // auto-switch to the new period
+          }
+        } else if (!d.bell_on) {
+          periodLabel.textContent = 'Manual · Period:';
+        }
+      } catch (e) { /* transient network error — try again next tick */ }
+    }
+    setInterval(syncPeriod, 30000);
+    setTimeout(syncPeriod, 2000);
+    periodSel.addEventListener('change', () => {
+      localStorage.setItem('manualPeriod', periodSel.value);
+      refocus();  // hand focus back to the scan box so scanning resumes
+    });
+
+    // Keep focus on the input so the scanner always lands here — but leave
+    // the top bar alone, otherwise clicking the period dropdown refocuses
+    // the scan box and the dropdown closes the instant it opens.
+    function refocus() { input.focus(); }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.topnav')) return;
+      refocus();
+    });
+    window.addEventListener('load', refocus);
+
+    let resetTimer = null;
+    function show(cls, status, name, sub) {
+      banner.className = 'banner ' + cls;
+      banner.innerHTML =
+        '<div class="status">' + status + '</div>' +
+        (name ? '<div class="name">' + name + '</div>' : '') +
+        (sub ? '<div class="sub">' + sub + '</div>' : '');
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        banner.className = 'banner idle';
+        banner.innerHTML =
+          '<div class="status">Ready</div>' +
+          '<div class="sub">Scan your ID to check in</div>';
+      }, 4000);
+    }
+
+    async function submitScan(value) {
+      const body = new URLSearchParams({ student_id: value, period_id: periodSel.value });
+      const res = await fetch('{{ url_for("scan") }}', { method: 'POST', body });
+      const d = await res.json();
+      if (d.status === 'ok') {
+        show('ok', '✓ Welcome', d.name, d.time ? ('Checked in at ' + d.time) : '');
+      } else if (d.status === 'duplicate') {
+        show('duplicate', 'Already In', d.name, d.time ? ('First scan at ' + d.time) : '');
+      } else if (d.status === 'inactive') {
+        show('inactive', '✕ Inactive ID', d.name, 'See the front office');
+      } else {
+        show('unknown', '✕ Not Recognized', '', 'See staff — ID not on the roster');
+      }
+    }
+
+    // Double-scan guard: ignore a repeat read of the SAME id within the
+    // cooldown window (the scanner often fires twice as the badge moves in
+    // and away). Different ids still scan instantly, so the line isn't slowed.
+    const cooldownMs = {{ scan_cooldown_ms }};
+    let lastVal = '', lastTime = 0;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const v = input.value.trim();
+        input.value = '';
+        refocus();
+        if (!v) return;
+        const now = Date.now();
+        if (v === lastVal && (now - lastTime) < cooldownMs) {
+          lastTime = now;  // extend the window so triple-reads are caught too
+          return;          // swallow the duplicate read; banner stays as-is
+        }
+        lastVal = v;
+        lastTime = now;
+        submitScan(v);
+      }
+    });
+  </script>
+</body>
+</html>

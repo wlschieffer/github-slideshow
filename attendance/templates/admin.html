@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staff — Attendance</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topnav">
+    <span class="brand">Attendance · Staff</span>
+    <a href="{{ url_for('kiosk') }}">Kiosk</a>
+    <a href="{{ url_for('admin') }}">Live</a>
+    <a href="{{ url_for('reports') }}">Reports</a>
+    <a href="{{ url_for('roster') }}">Roster</a>
+    <a href="{{ url_for('schedule') }}">Class&nbsp;Lists</a>
+    <a href="{{ url_for('settings') }}">Settings</a>
+    <a href="{{ url_for('staff_logout') }}">Log&nbsp;out</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Who's checked in
+      <span class="muted" style="font-size:.9rem; font-weight:400">
+        · {{ 'per-period rosters' if per_period else 'whole-school mode' }}
+      </span>
+    </h1>
+
+    <form class="controls" method="get" action="{{ url_for('admin') }}">
+      <label>Date
+        <input type="date" name="day" value="{{ day }}">
+      </label>
+      <label>Period
+        <select name="period_id">
+          {% for p in periods %}
+            <option value="{{ p.id }}" {{ 'selected' if p.id == selected_period }}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">View</button>
+      <a class="btn" href="{{ url_for('admin_export', day=day, period_id=selected_period) }}">Export CSV</a>
+    </form>
+
+    <div class="stats">
+      <div class="stat"><div class="n">{{ present_count }}</div><div class="l">Present</div></div>
+      <div class="stat"><div class="n">{{ absent_count }}</div><div class="l">Not yet in</div></div>
+      <div class="stat"><div class="n">{{ total }}</div><div class="l">Roster</div></div>
+    </div>
+
+    {% if not rows %}
+      <p class="muted">No active students on the roster yet.
+         <a href="{{ url_for('roster') }}">Import your roster</a> to get started.</p>
+    {% else %}
+    <table>
+      <thead>
+        <tr><th>Student</th><th>ID</th><th>Status</th><th>Time</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'present' if r.scanned_at }}">
+          <td>
+            <a href="{{ url_for('student_history', student_id=r.student_id) }}">{{ r.name }}</a>
+            {% if r.section %}<div class="muted" style="font-size:.8rem">{{ r.section }}{% if r.room %} · Rm {{ r.room }}{% endif %}</div>{% endif %}
+          </td>
+          <td class="muted">{{ r.student_id }}</td>
+          <td>
+            {% if r.scanned_at %}
+              <span class="pill present">Present</span>
+              {% if r.method == 'manual' %}<span class="pill manual">manual</span>{% endif %}
+            {% else %}
+              <span class="pill absent">Absent</span>
+            {% endif %}
+          </td>
+          <td class="muted">
+            {{ r.scanned_at.split('T')[1][:5] if r.scanned_at else '' }}
+          </td>
+          <td>
+            {% if r.scanned_at %}
+              <form class="inline" method="post" action="{{ url_for('admin_unmark') }}">
+                <input type="hidden" name="student_id" value="{{ r.student_id }}">
+                <input type="hidden" name="period_id" value="{{ selected_period }}">
+                <input type="hidden" name="day" value="{{ day }}">
+                <button class="ghost" type="submit">Undo</button>
+              </form>
+            {% else %}
+              <form class="inline" method="post" action="{{ url_for('admin_mark') }}">
+                <input type="hidden" name="student_id" value="{{ r.student_id }}">
+                <input type="hidden" name="period_id" value="{{ selected_period }}">
+                <input type="hidden" name="day" value="{{ day }}">
+                <button type="submit">Mark present</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="margin-top:1rem">
+      Forgot-ID check-in: find the student above and click <em>Mark present</em>
+      (logged as <span class="pill manual">manual</span>).
+    </p>
+    {% endif %}
+
+    {% if extras %}
+    <h1 style="margin-top:2rem; font-size:1.15rem">
+      Also checked in — not on this period's roster
+    </h1>
+    <table>
+      <thead><tr><th>Student</th><th>ID</th><th>Time</th><th></th></tr></thead>
+      <tbody>
+        {% for r in extras %}
+        <tr>
+          <td><a href="{{ url_for('student_history', student_id=r.student_id) }}">{{ r.name }}</a></td>
+          <td class="muted">{{ r.student_id }}</td>
+          <td class="muted">{{ r.scanned_at.split('T')[1][:5] if r.scanned_at else '' }}</td>
+          <td>
+            <form class="inline" method="post" action="{{ url_for('admin_unmark') }}">
+              <input type="hidden" name="student_id" value="{{ r.student_id }}">
+              <input type="hidden" name="period_id" value="{{ selected_period }}">
+              <input type="hidden" name="day" value="{{ day }}">
+              <button class="ghost" type="submit">Undo</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</body>
+</html>
