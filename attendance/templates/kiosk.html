@@ -10,11 +10,7 @@
   <div class="topnav">
     <span class="brand">Scan In</span>
     <div class="period-picker">
-      {% if schedule_name %}
-        <span title="Today's bell schedule">{{ schedule_name }} · Period:</span>
-      {% else %}
-        <span title="Bell schedule is off — pick the period manually">Manual · Period:</span>
-      {% endif %}
+      <span id="periodLabel" title="Today's bell schedule">{{ (schedule_name ~ ' · Period:') if schedule_name else 'Manual · Period:' }}</span>
       <select id="period">
         {% for p in periods %}
           <option value="{{ p.id }}" {{ 'selected' if p.id == selected_period }}>
@@ -40,16 +36,44 @@
     const input = document.getElementById('scan');
     const banner = document.getElementById('banner');
     const periodSel = document.getElementById('period');
+    const periodLabel = document.getElementById('periodLabel');
 
     // When the bell schedule is off, the period is chosen manually — remember
     // that choice across refreshes so a kiosk left running stays put.
-    const bellOn = {{ 'true' if schedule_name else 'false' }};
-    if (!bellOn) {
+    const bellOnAtLoad = {{ 'true' if schedule_name else 'false' }};
+    if (!bellOnAtLoad) {
       const saved = localStorage.getItem('manualPeriod');
       if (saved && periodSel.querySelector('option[value="' + saved + '"]')) {
         periodSel.value = saved;
       }
     }
+
+    // Poll the server so the kiosk auto-advances to the current period as the
+    // bell schedule moves on (and picks up a schedule change) without a manual
+    // refresh. When the bell schedule is off, the manual choice is left alone.
+    async function syncPeriod() {
+      try {
+        const res = await fetch('{{ url_for("api_current_period") }}', { cache: 'no-store' });
+        const d = await res.json();
+        if (d.bell_on && d.period_id) {
+          periodLabel.textContent = d.schedule_name + ' · Period:';
+          const val = String(d.period_id);
+          if (periodSel.value !== val) {
+            if (!periodSel.querySelector('option[value="' + val + '"]')) {
+              const opt = document.createElement('option');
+              opt.value = val;
+              opt.textContent = d.period_name || ('Period ' + val);
+              periodSel.appendChild(opt);
+            }
+            periodSel.value = val;  // auto-switch to the new period
+          }
+        } else if (!d.bell_on) {
+          periodLabel.textContent = 'Manual · Period:';
+        }
+      } catch (e) { /* transient network error — try again next tick */ }
+    }
+    setInterval(syncPeriod, 30000);
+    setTimeout(syncPeriod, 2000);
     periodSel.addEventListener('change', () => {
       localStorage.setItem('manualPeriod', periodSel.value);
       refocus();  // hand focus back to the scan box so scanning resumes
