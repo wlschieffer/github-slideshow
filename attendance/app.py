@@ -59,7 +59,7 @@ app.permanent_session_lifetime = timedelta(hours=12)
 
 # Endpoints reachable without the staff PIN: the student kiosk, the scan
 # endpoint it calls, the login page itself, and static files.
-PUBLIC_ENDPOINTS = {"kiosk", "scan", "staff_login", "static"}
+PUBLIC_ENDPOINTS = {"kiosk", "scan", "api_current_period", "staff_login", "static"}
 
 
 @app.before_request
@@ -166,6 +166,22 @@ def kiosk():
         schedule_name=sched["name"] if sched else None,
         scan_cooldown_ms=cooldown,
     )
+
+
+@app.get("/current-period")
+def api_current_period():
+    """Lightweight JSON the kiosk polls so it auto-advances to the current
+    period as the bell schedule moves on (or when the schedule is changed)."""
+    conn = db.get_db()
+    sched = db.active_schedule(conn)
+    cur = db.current_period(conn)
+    conn.close()
+    return {
+        "bell_on": sched is not None,
+        "schedule_name": sched["name"] if sched else None,
+        "period_id": cur["id"] if cur else None,
+        "period_name": cur["name"] if cur else None,
+    }
 
 
 @app.post("/scan")
